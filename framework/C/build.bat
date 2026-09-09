@@ -3,6 +3,7 @@ rem Genetic storage framework (C23) -- clang-only build
 rem   build.bat          build everything (vivi_test.exe, vivi_demo.exe)
 rem   build.bat lib      framework only -> vivi.lib
 rem   build.bat test     build and run the test suite
+rem   build.bat density  build and run the packing-density report
 rem   build.bat clean    remove outputs
 setlocal
 set CC=clang
@@ -13,6 +14,7 @@ set LIBSRC=src\vivi.c src\dna.c src\genome.c src\chromosome.c src\cell.c src\org
 if "%1"=="clean" goto clean
 if "%1"=="lib" goto lib
 if "%1"=="test" goto test
+if "%1"=="density" goto density
 goto all
 
 :lib
@@ -30,6 +32,12 @@ if errorlevel 1 exit /b 1
 vivi_test.exe
 exit /b %errorlevel%
 
+:density
+%CC% %CFLAGS% -o density.exe test\density.c %LIBSRC%
+if errorlevel 1 exit /b 1
+density.exe
+exit /b %errorlevel%
+
 :all
 %CC% %CFLAGS% -o vivi_test.exe test\test.c %LIBSRC%
 if errorlevel 1 exit /b 1
@@ -39,6 +47,6 @@ echo Build OK: vivi_test.exe vivi_demo.exe
 exit /b 0
 
 :clean
-del vivi_test.exe vivi_demo.exe vivi.lib *.obj 2>nul
+del vivi_test.exe vivi_demo.exe density.exe vivi.lib *.obj 2>nul
 exit /b 0
 

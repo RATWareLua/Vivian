@@ -1,19 +1,19 @@
-# Genetic storage framework (C23) -- clang-only build
+# Vivian framework (C23) -- clang-only build
 CC      := clang
 AR      := llvm-ar
 CFLAGS  := -std=c23 -O2 -Wall -Wextra -Iinclude
 LIBSRC  := src/vivi.c src/dna.c src/genome.c src/chromosome.c src/cell.c src/organism.c
-HDRS    := $(wildcard include/gsy/*.h)
+HDRS    := $(wildcard include/vivi/*.h)
 LIBOBJ  := $(LIBSRC:.c=.o)
 
-.PHONY: all lib test demo clean
+.PHONY: all lib test demo density clean
 
-all: libgsy.a vivi_test.exe vivi_demo.exe
+all: vivi.a vivi_test.exe vivi_demo.exe
 
-# framework only -- link vivi.lib into your own entrypoint
-lib: libgsy.a
+# framework only -- link vivi.a into your own entrypoint
+lib: vivi.a
 
-libgsy.a: $(LIBOBJ) $(HDRS)
+vivi.a: $(LIBOBJ) $(HDRS)
 	$(AR) rcs $@ $(LIBOBJ)
 
 src/%.o: src/%.c $(HDRS)
@@ -25,12 +25,17 @@ vivi_test.exe: test/test.c $(LIBSRC) $(HDRS)
 vivi_demo.exe: demo/demo.c $(LIBSRC) $(HDRS)
 	$(CC) $(CFLAGS) -o $@ demo/demo.c $(LIBSRC)
 
+density.exe: test/density.c $(LIBSRC) $(HDRS)
+	$(CC) $(CFLAGS) -o $@ test/density.c $(LIBSRC)
+
 test: vivi_test.exe
 	./vivi_test.exe
 
 demo: vivi_demo.exe
 	./vivi_demo.exe
 
-clean:
-	rm -f libgsy.a vivi_test.exe vivi_demo.exe src/*.o
+density: density.exe
+	./density.exe
 
+clean:
+	rm -f vivi.a vivi_test.exe vivi_demo.exe density.exe src/*.o

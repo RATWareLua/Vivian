@@ -153,6 +153,49 @@ their own entrypoints.
 | crossing-over | two parents → one per-gene mosaic child |
 | VIV1 container | versioned serialization of the whole organism |
 
+## Packing density
+
+The alphabet ceiling is **2.0 bits/nt** (4 bases = 2 bits). Everything
+below it is the price of looking like DNA: the length header, whitening,
+the homopolymer fallback alphabet, GC fill, gene framing, telomeres and
+the centromere. Reproduce with `build.bat density` (or `make density`)
+— it runs `test/density.c`, which measures random, text and all-zero
+payloads:
+
+**Codec alone** (`dna_encode`, h=3) — pattern-independent thanks to
+whitening (random / text / zeros agree within ±0.002):
+
+| payload | bits/nt |
+|---:|---:|
+| 64 B | 1.803 |
+| 1 KiB | 1.947 |
+| ≥ 16 KiB | **1.952** (asymptote) |
+
+**Full chromosome** (gene_raw = 1024, dense, h=3, units = 4):
+
+| payload | bits/nt | overhead breakdown |
+|---:|---:|---|
+| 64 B | 0.955 | telomeres 96 nt, centromere 72 nt, gene frame 84 nt |
+| 1 KiB | 1.832 | …constraint expansion +128 nt (+0.1%) |
+| 16 KiB | 1.900 | gene frames 16 × 84 nt |
+| 64 KiB | **1.903** | gene frames 64 × 84 nt, expansion +7796 nt (+0.1%) |
+
+Reading the numbers:
+
+- **Practical ceiling ~1.95 bits/nt** for the raw codec on large
+  payloads; ~1.90 bits/nt once the data is framed into a chromosome.
+- **Framing is the dominant cost**: 84 nt per gene (PROM 12 + header 36
+  + integrity tag 24 + TERM 12), plus fixed ~168 nt of telomeres and
+  centromere per chromosome — like real biology, small genomes spend
+  more on scaffolding than on cargo (64 B → 0.955 bits/nt).
+- **Constraints are cheap**: homopolymer breaking and GC targeting cost
+  only ~0.1–0.4% on average payloads, because the whitening keystream
+  makes the strand quasi-random before the constraint coder sees it;
+  measured GC stays in [0.487, 0.503] with runs ≤ 3.
+- Raising `gene_raw` (fewer, bigger genes) trades integrity granularity
+  for density: at gene_raw = 64 KiB the single-gene chromosome
+  asymptotes to the codec's ~1.95 bits/nt.
+
 ## The VIV1 container
 
 `"VIV1"` magic, generation (2 bytes BE), chromosome count (1 byte), then
