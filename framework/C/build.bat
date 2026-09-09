@@ -1,0 +1,44 @@
+@echo off
+rem Genetic storage framework (C23) -- clang-only build
+rem   build.bat          build everything (vivi_test.exe, vivi_demo.exe)
+rem   build.bat lib      framework only -> vivi.lib
+rem   build.bat test     build and run the test suite
+rem   build.bat clean    remove outputs
+setlocal
+set CC=clang
+set AR=llvm-ar
+set CFLAGS=-std=c23 -O2 -Wall -Wextra -Iinclude
+set LIBSRC=src\vivi.c src\dna.c src\genome.c src\chromosome.c src\cell.c src\organism.c
+
+if "%1"=="clean" goto clean
+if "%1"=="lib" goto lib
+if "%1"=="test" goto test
+goto all
+
+:lib
+%CC% %CFLAGS% -c %LIBSRC%
+if errorlevel 1 exit /b 1
+%AR% rcs vivi.lib vivi.o dna.o genome.o chromosome.o cell.o organism.o
+if errorlevel 1 exit /b 1
+del *.o
+echo vivi.lib built.
+exit /b 0
+
+:test
+%CC% %CFLAGS% -o vivi_test.exe test\test.c %LIBSRC%
+if errorlevel 1 exit /b 1
+vivi_test.exe
+exit /b %errorlevel%
+
+:all
+%CC% %CFLAGS% -o vivi_test.exe test\test.c %LIBSRC%
+if errorlevel 1 exit /b 1
+%CC% %CFLAGS% -o vivi_demo.exe demo\demo.c %LIBSRC%
+if errorlevel 1 exit /b 1
+echo Build OK: vivi_test.exe vivi_demo.exe
+exit /b 0
+
+:clean
+del vivi_test.exe vivi_demo.exe vivi.lib *.obj 2>nul
+exit /b 0
+
