@@ -61,13 +61,14 @@ physically survived.
 C23, clang, no dependencies beyond the CRT's `memcpy/memset/memcmp`:
 
 ```bat
-cd C
+cd framework\C
 build.bat lib        rem framework only -> vivi.lib
 build.bat            rem + test suite + interactive demo
 vivi_test.exe        rem pass=379 fail=0
+build.bat density    rem packing-density report (bits/nt)
 ```
 
-Or with `make`: `make lib`, `make test`, `make demo`.
+Or with `make`: `make lib`, `make test`, `make demo`, `make density`.
 
 ### Hello, organism
 
@@ -110,8 +111,9 @@ int main(void)
 }
 ```
 
-Compile: `clang -std=c23 -O2 -Iinclude -o hello hello.c src\vivi.c src\dna.c
-src\genome.c src\chromosome.c src\cell.c src\organism.c`
+Compile (from `framework/C`): `clang -std=c23 -O2 -Iinclude -o hello
+hello.c src\vivi.c src\dna.c src\genome.c src\chromosome.c src\cell.c
+src\organism.c`
 
 ## Bare metal / freestanding
 
@@ -207,18 +209,26 @@ bytes. Byte-compatible with the Lua reference below.
 
 ```
 .
-├── framework/          Lua reference implementation (the "biochemistry" spec,
-│                       byte-compatible with the C port)
-├── C/
-│   ├── include/vivi/   public API: vivi.h, dna.h, genome.h, chromosome.h,
-│   │                   cell.h, organism.h
-│   ├── src/            the framework itself (no I/O, no CRT assumptions)
-│   ├── test/           379-check self-test (own entrypoint, hosted)
-│   ├── demo/           interactive terminal tamagotchi (own entrypoint, hosted)
-│   ├── vivi.lib        built with build.bat lib / make lib
-│   ├── build.bat       all | lib | test | clean
-│   └── Makefile        all | lib | test | demo | clean
+├── README.md
+└── framework/
+    ├── luau/              Lua reference implementation (the "biochemistry" spec,
+    │                      byte-compatible with the C port)
+    └── C/
+        ├── include/vivi/  public API: vivi.h, dna.h, genome.h, chromosome.h,
+        │                  cell.h, organism.h
+        ├── src/           the framework itself (no I/O, no CRT assumptions)
+        ├── test/          379-check self-test + density report
+        │                  (own entrypoints, hosted)
+        ├── demo/          interactive terminal tamagotchi (own entrypoint, hosted)
+        ├── vivi.lib       built with build.bat lib / make lib
+        ├── build.bat      all | lib | test | density | clean
+        └── Makefile       all | lib | test | demo | density | clean
 ```
+
+The two implementations are independent: `luau/` is readable and
+hackable (run it with any Luau runtime, e.g.
+`luau framework/luau/demo.lua`), while `C/` is the deployable engine.
+Both write identical bytes.
 
 ## Verification
 
