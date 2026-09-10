@@ -385,12 +385,14 @@ bool organism_cross(vivi_organism **out, vivi_organism *pa, vivi_organism *pb,
 ### Serialization
 
 ```c
-bool organism_serialize(vivi_bytes *out, vivi_organism *o, const char **err);
+bool organism_serialize(vivi_bytes *out, vivi_organism *o, const char **err);   /* VIV1 */
+bool organism_serialize14(vivi_bytes *out, vivi_organism *o, const char **err); /* VIV14 */
+int  organism_container_version(const uint8_t *s, size_t len);  /* 0, 1 or 14 */
 bool organism_deserialize(vivi_organism **out, const uint8_t *s, size_t len,
-                          const char **err);
+                          const char **err);   /* reads both revisions */
 ```
 
-The `VIV1` container:
+The `VIV1` container (byte-compatible with the Lua reference):
 
 ```
 "VIV1" | generation (2 BE) | nchr (1)
@@ -399,10 +401,25 @@ per chromosome:
   | strand length (4 BE) | strand bytes
 ```
 
-Deterministic: the same organism serializes to the same bytes. Only homolog
-0 is stored; deserialization duplicates it into both homologs (a
-homozygous organism). `max_gen` is not stored and resets to 60. Trailing
-bytes after the last chromosome are ignored.
+`VIV1` stores only homolog 0; loading makes the organism homozygous and
+resets `max_gen` to 60. Trailing bytes after the last chromosome are
+ignored.
+
+The `VIV14` container (`docs/viv14.md`):
+
+```
+"VIV14" | flags (1; bit0 = diploid) | generation (2 BE) | nchr (1) | max_gen (2 BE)
+per chromosome:
+  id (1) | gene_raw (2 BE) | mode|h (1) | units (1) | flags (1)
+  | len0 (4 BE) | strand0 | len1 (4 BE) | strand1
+```
+
+VIV14 stores **both homologs** and `max_gen`, so a divergence between the
+copies survives a save/load cycle. Validation requires both strands to
+parse structurally and at least one intact centromere per chromosome.
+`organism_deserialize` sniffs the magic and accepts either revision; a
+VIV1 file whose generation high byte is `'4'` is retried as VIV1 when the
+VIV14 structure is invalid.
 
 ### Population maintenance
 

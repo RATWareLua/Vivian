@@ -122,7 +122,12 @@ you need concurrency.
 - `VIV1` is deterministic and stores only homolog 0. Loading makes the
   organism homozygous and resets `max_gen` to 60. Trailing bytes are
   ignored; duplicate/unsorted chromosome ids are not rejected on load.
-- The Lua and C implementations accept each other's containers.
+- `VIV14` (see [viv14.md](viv14.md)) stores both homologs and `max_gen`;
+  loading preserves any divergence between the copies. It requires both
+  strands to parse structurally and at least one intact centromere per
+  chromosome, and rejects any flags value other than 1.
+- `organism_deserialize` accepts both revisions; VIV1 writers stay
+  byte-compatible with the Lua reference.
 
 ## Freestanding checklist
 

@@ -8,6 +8,8 @@ then follow the two references:
    determinism, threading, and the lifecycle rules you must respect.
 3. [`research.md`](research.md) — the error channel, `vivi_sim` experiments,
    format evolution plan and the research roadmap.
+4. [`viv14.md`](viv14.md) — the VIV14 container design, wire format and
+   migration rules.
 
 The Lua implementation in `framework/luau/` is the normative byte-format
 reference: for the same inputs the C port produces exactly the same bytes.

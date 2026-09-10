@@ -793,6 +793,88 @@ static void test_organisms(void)
 	organism_free(org);
 }
 
+/* ---------- VIV14 container ---------- */
+static void test_viv14(void)
+{
+	const char *err;
+	chr_opts o1 = { 1024, 0, 3, 4, 0 };
+	int ids[1] = { 0 };
+	uint8_t d0[300];
+	rands(d0, 300);
+	const uint8_t *datas[1] = { d0 };
+	const size_t lens[1] = { 300 };
+	vivi_organism *org = nullptr;
+	CHECK(organism_new(&org, ids, &o1, datas, lens, 1, 7, &err), "viv14 organism");
+
+	vivi_bytes v1 = { 0 }, v14 = { 0 };
+	CHECK(organism_serialize(&v1, org, &err), "viv14 serialize v1");
+	CHECK(organism_container_version(v1.data, v1.len) == 1, "viv14 sniffs v1");
+	CHECK(organism_serialize14(&v14, org, &err), "viv14 serialize");
+	CHECK(v14.len > 5 && memcmp(v14.data, "VIV14", 5) == 0, "viv14 magic");
+	CHECK(organism_container_version(v14.data, v14.len) == 14, "viv14 sniffs v14");
+	CHECK(organism_container_version((const uint8_t *)"junk", 4) == 0, "viv14 rejects junk");
+
+	/* damage homolog 0 only: only VIV14 must keep both homologs */
+	vivi_bytes dmg = { 0 };
+	(void)cell_damage_strand(&dmg, org->hom[0][0], org->hlen[0][0], 40, 11, &err);
+	vivi_dealloc(org->hom[0][0]);
+	org->hom[0][0] = dmg.data;
+	org->hlen[0][0] = dmg.len;
+	size_t dl0 = org->hlen[0][0], dl1 = org->hlen[1][0];
+	uint8_t *stored0 = vivi_alloc(dl0);
+	uint8_t *stored1 = vivi_alloc(dl1);
+	memcpy(stored0, org->hom[0][0], dl0);
+	memcpy(stored1, org->hom[1][0], dl1);
+
+	vivi_bytes s14 = { 0 };
+	CHECK(organism_serialize14(&s14, org, &err), "viv14 serialize damaged pair");
+	vivi_organism *loaded = nullptr;
+	CHECK(organism_deserialize(&loaded, s14.data, s14.len, &err), "viv14 load pair");
+	CHECK(loaded->nchr == 1 && loaded->max_gen == 7 && loaded->generation == 0,
+		"viv14 metadata");
+	CHECK(loaded->hlen[0][0] == dl0 && memcmp(loaded->hom[0][0], stored0, dl0) == 0
+		&& loaded->hlen[1][0] == dl1 && memcmp(loaded->hom[1][0], stored1, dl1) == 0,
+		"viv14 preserves both homologs");
+	CHECK(memcmp(loaded->hom[0][0], loaded->hom[1][0], dl0) != 0,
+		"viv14 keeps the divergence");
+	vivi_bytes *rd = nullptr;
+	cell_report rep;
+	CHECK(organism_read(&rd, loaded, &rep, &err), "viv14 pair repairs");
+	CHECK(rd[0].len == 300 && memcmp(rd[0].data, d0, 300) == 0, "viv14 repaired payload");
+	vivi_bytes_free_n(rd, loaded->nchr);
+	organism_free(loaded);
+
+	/* VIV1 stores only homolog 0, and its parser rejects a strand with a
+	 * damaged centromere -- exactly what VIV14 is there to preserve */
+	vivi_bytes v1d = { 0 };
+	CHECK(organism_serialize(&v1d, org, &err), "viv14 serialize damaged as v1");
+	vivi_organism *old = nullptr;
+	CHECK(!organism_deserialize(&old, v1d.data, v1d.len, &err),
+		"v1 cannot load the damaged homolog");
+	if (old) organism_free(old);
+
+	vivi_organism *bad = nullptr;
+	CHECK(!organism_deserialize(&bad, s14.data, s14.len - 1, &err), "viv14 truncated rejected");
+	if (bad) organism_free(bad);
+	uint8_t *buf = vivi_alloc(s14.len);
+	memcpy(buf, s14.data, s14.len);
+	buf[5] = 2;
+	CHECK(!organism_deserialize(&bad, buf, s14.len, &err), "viv14 bad flags rejected");
+	if (bad) organism_free(bad);
+	vivi_dealloc(buf);
+
+	CHECK(organism_deserialize(&bad, v1.data, v1.len, &err), "viv14 dispatcher reads v1");
+	organism_free(bad);
+
+	vivi_dealloc(stored0);
+	vivi_dealloc(stored1);
+	vivi_bytes_free(&s14);
+	vivi_bytes_free(&v1d);
+	vivi_bytes_free(&v14);
+	vivi_bytes_free(&v1);
+	organism_free(org);
+}
+
 int main(void)
 {
 #ifdef _WIN32
@@ -813,6 +895,7 @@ int main(void)
 	test_parity();
 	test_cells();
 	test_organisms();
+	test_viv14();
 	dna_free_caches();
 #ifdef VIVI_TEST_TRACK
 	CHECK(g_live == 0, "no leaked allocations");

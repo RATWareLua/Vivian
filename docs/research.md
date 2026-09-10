@@ -224,12 +224,15 @@ implementations; it does not claim to compete with these systems.
 
 ## Toward VIV14
 
-Planned format revision, following the evolution ladder:
-- on-strand primer sites, so random access becomes physical rather than
-  bookkept in the primer database;
-- parity genes as first-class chromosome members (outer code in the format);
-- version-prefix dispatch for magics longer than four bytes
-  (`VIV14` → `VIV14N` → `VIV14NB4NSH33`), with `VIV1` staying readable.
+`VIV14` shipped: a versioned container that stores **both homologs** and
+`max_gen`, with VIV1 still readable. Full design, wire format and migration
+rules: [viv14.md](viv14.md).
+
+Still planned, in ladder order:
+- `VIV14N` — parity genes as first-class chromosome members (outer code in
+  the format);
+- `VIV14NB4NSH33` ("Vivian Banshee") — on-strand primer sites for physical
+  random access; layout freeze.
 
 ## Roadmap
 

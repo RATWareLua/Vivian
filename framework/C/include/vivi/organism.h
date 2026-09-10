@@ -52,6 +52,12 @@ cell_report organism_checkpoint(vivi_organism *o);
 [[nodiscard]] bool organism_cross(vivi_organism **out, vivi_organism *pa, vivi_organism *pb,
 	uint32_t seed, const char **err);
 [[nodiscard]] bool organism_serialize(vivi_bytes *out, vivi_organism *o, const char **err);
+/* VIV14 writer: stores both homologs and max_gen. organism_serialize()
+ * keeps writing VIV1, byte-compatible with the Lua reference. */
+[[nodiscard]] bool organism_serialize14(vivi_bytes *out, vivi_organism *o, const char **err);
+/* container revision of a serialized organism: 1 (VIV1), 14 (VIV14) or 0 */
+int organism_container_version(const uint8_t *s, size_t len);
+/* reads both VIV1 and VIV14 containers */
 [[nodiscard]] bool organism_deserialize(vivi_organism **out, const uint8_t *s, size_t len, const char **err);
 cell_report organism_maintain(vivi_organism **organisms, size_t count,
 	const vivi_organism *stem);

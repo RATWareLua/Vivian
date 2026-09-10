@@ -55,7 +55,7 @@ physically survived.
   public.
 - Not a compressor: expect a small, deterministic size overhead (the
   VIV1 container adds ~3%).
-- Not production archival software — it is a rigorous toy: 434-check test
+- Not production archival software — it is a rigorous toy: 453-check test
   suite, official Chaskey-12 vectors, ASan-clean, but experimental.
 
 ## Quick start
@@ -67,7 +67,7 @@ beyond the CRT's `memcpy/memset/memcmp`:
 cd framework\C
 build.bat lib        rem framework only -> vivi.lib
 build.bat            rem + test suite + interactive demo
-vivi_test.exe        rem pass=434 fail=0
+vivi_test.exe        rem pass=453 fail=0
 build.bat density    rem packing-density report (bits/nt)
 build.bat sim        rem channel experiment sweep (CSV)
 build.bat research   rem full parameter sweeps -> research_*.csv
@@ -205,13 +205,20 @@ Reading the numbers:
   for density: at gene_raw = 64 KiB the single-gene chromosome
   asymptotes to the codec's ~1.95 bits/nt.
 
-## The VIV1 container
+## Containers
 
-`"VIV1"` magic, generation (2 bytes BE), chromosome count (1 byte), then
-per chromosome: id (1), gene_raw (2 BE), mode\|h (1), units (1), flags (1),
-strand length (4 BE), strand bytes. Deterministic: same organism, same
-bytes. Byte-compatible with the Lua reference below. Future revisions are
-named `VIV14` → `VIV14N` → `VIV14NB4NSH33` ("Vivian Banshee"); see
+`VIV1` (the current byte format, shared with the Lua reference): `"VIV1"`
+magic, generation (2 bytes BE), chromosome count (1 byte), then per
+chromosome: id (1), gene_raw (2 BE), mode\|h (1), units (1), flags (1),
+strand length (4 BE), strand bytes. It stores only homolog 0.
+
+`VIV14` ([design](docs/viv14.md)): `"VIV14"` magic, flags, generation,
+chromosome count and `max_gen`, then **both homologs** per chromosome — a
+divergence between the copies survives a save/load cycle.
+`organism_deserialize` reads both revisions.
+
+The ladder continues with `VIV14N` (parity genes) and `VIV14NB4NSH33`
+("Vivian Banshee", on-strand primers); see
 [docs/research.md](docs/research.md).
 
 ## Documentation
@@ -220,6 +227,7 @@ named `VIV14` → `VIV14N` → `VIV14NB4NSH33` ("Vivian Banshee"); see
 - [`docs/api.md`](docs/api.md) — module-by-module API reference
 - [`docs/contracts.md`](docs/contracts.md) — memory ownership, errors, limits, determinism, threading
 - [`docs/research.md`](docs/research.md) — error channel, `vivi_sim` experiments, fuzzing, format evolution plan
+- [`docs/viv14.md`](docs/viv14.md) — VIV14 container design, wire format, migration rules
 
 ## Layout
 
@@ -234,7 +242,7 @@ named `VIV14` → `VIV14N` → `VIV14NB4NSH33` ("Vivian Banshee"); see
         ├── include/vivi/  public API: vivi.h, dna.h, genome.h, chromosome.h,
         │                  cell.h, organism.h
         ├── src/           the framework itself (no I/O, no CRT assumptions)
-        ├── test/          434-check self-test, density/sim tools, fuzz harnesses
+        ├── test/          453-check self-test, density/sim tools, fuzz harnesses
         │                  (own entrypoints, hosted; fuzz targets POSIX-only)
         ├── demo/          interactive terminal tamagotchi (own entrypoint, hosted)
         ├── vivi.lib       built with build.bat lib / make lib
@@ -247,11 +255,11 @@ hackable (run it with any Luau runtime, e.g.
 `luau framework/luau/demo.lua`; the interpreter binary is not bundled —
 grab one from the [luau-lang/luau releases](https://github.com/luau-lang/luau/releases)),
 while `C/` is the deployable engine.
-Both write identical bytes.
+Both write identical VIV1 bytes; from VIV14 on the C port is the reference.
 
 ## Verification
 
-- **434/434** checks: 64 official Chaskey-12 vectors; codec round-trips
+- **453/453** checks: 64 official Chaskey-12 vectors; codec round-trips
   for every parameter combination; constraint edge cases; gene/chromosome
   structure and corruption detection; diploid repair, checkpoints,
   senescence, stem rejuvenation; mutations, crossing-over mosaics; VIV1

@@ -2,10 +2,14 @@
 #include <stdlib.h>
 #include "vivi/organism.h"
 
-static vivi_bytes g_seed;
+static vivi_bytes g_seed, g_seed14;
 static int g_seed_done;
 
-static void seed_cleanup(void) { vivi_bytes_free(&g_seed); }
+static void seed_cleanup(void)
+{
+	vivi_bytes_free(&g_seed);
+	vivi_bytes_free(&g_seed14);
+}
 
 static void seed_once(void)
 {
@@ -21,6 +25,7 @@ static void seed_once(void)
 	vivi_organism *o = nullptr;
 	if (organism_new(&o, ids, opts, datas, lens, 2, 60, nullptr)) {
 		(void)organism_serialize(&g_seed, o, nullptr);
+		(void)organism_serialize14(&g_seed14, o, nullptr);
 		organism_free(o);
 	}
 	atexit(seed_cleanup);
@@ -40,6 +45,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
 	seed_once();
 	if (g_seed.data) load_one(g_seed.data, g_seed.len);
+	if (g_seed14.data) load_one(g_seed14.data, g_seed14.len);
 	load_one(data, size);
 	return 0;
 }
