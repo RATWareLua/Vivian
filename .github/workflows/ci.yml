@@ -44,9 +44,13 @@ jobs:
       - name: Cross-check C vs Lua (byte parity)
         run: |
           wget -qO /tmp/luau.zip https://github.com/luau-lang/luau/releases/latest/download/luau-ubuntu.zip
-          unzip -o /tmp/luau.zip -d /tmp/luau
-          /tmp/luau/luau --version || true
-          make -C framework/C xcheck CC=clang-${LLVM_VERSION} > /tmp/xcheck_c.txt
+          unzip -oq /tmp/luau.zip -d /tmp/luau
+          make -s --no-print-directory -C framework/C xcheck.exe CC=clang-${LLVM_VERSION}
+          framework/C/xcheck.exe > /tmp/xcheck_c.txt
           /tmp/luau/luau framework/luau/xcheck.lua > /tmp/xcheck_lua.txt
-          diff -u /tmp/xcheck_c.txt /tmp/xcheck_lua.txt
+          diff -u /tmp/xcheck_c.txt /tmp/xcheck_lua.txt || {
+            echo "--- C output (head) ---"; head -5 /tmp/xcheck_c.txt
+            echo "--- Lua output (head) ---"; head -5 /tmp/xcheck_lua.txt
+            exit 1
+          }
           echo "C<->Lua byte parity OK ($(wc -l < /tmp/xcheck_c.txt) lines)"
