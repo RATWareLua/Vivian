@@ -11,7 +11,8 @@
 #include "vivi.h"
 #include "genome.h"
 
-#define CENBYTES 18   /* centromere: marker (3) + 20 codons (15) */
+#define CENBYTES 18   /* VIV1/VIV14 centromere: marker (3) + 20 codons (15) */
+#define CEN2BYTES 27  /* VIV14N centromere: marker (3) + 32 codons (24) */
 
 typedef struct {
 	int gene_raw;   /* 0 = default 1024; else >= 16 */
@@ -19,10 +20,14 @@ typedef struct {
 	int h;          /* dense gene homopolymer limit, 0 = default 3 */
 	int units;      /* telomere repeat units, 0 = default 4 */
 	int flags;      /* user byte */
+	int parity;     /* VIV14N: parity genes appended (0..16, 0 = off) */
 } chr_opts;
 
 typedef struct {
 	int id, flags, ngenes, generation;
+	int parity;          /* VIV14N: number of parity genes */
+	size_t rawlen;       /* VIV14N: true payload length */
+	int cen_version;     /* 1 = VIV1/VIV14 centromere, 2 = VIV14N */
 	int telomere_ok, cen_ok;
 	size_t telomere_bytes;
 	genome_gene *genes;

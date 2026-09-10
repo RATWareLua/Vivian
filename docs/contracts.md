@@ -66,6 +66,7 @@ return.
 | `max_gen` | 0 = 60; replication at `generation + 1 > max_gen` fails "senescent" |
 | `vivi_channel_opts` probabilities | 0 .. 1 |
 | Reed-Solomon geometry (`parity.h`) | `n + m <= 255`, shard length >= 1 |
+| `chr_opts.parity` (VIV14N) | 0..16; with parity, genes per chromosome `n + m <= 255` |
 
 ## Determinism and byte format
 
@@ -126,7 +127,12 @@ you need concurrency.
   loading preserves any divergence between the copies. It requires both
   strands to parse structurally and at least one intact centromere per
   chromosome, and rejects any flags value other than 1.
-- `organism_deserialize` accepts both revisions; VIV1 writers stay
+- `VIV14N` adds parity genes to the chromosome (CEN2 centromere, gene
+  `type` bit 1) and a parity byte per chromosome in the container; the
+  parity count can be inferred from a VIV14 container that happens to
+  carry CEN2 strands. `chr_read` reconstructs erased data genes with
+  Reed-Solomon; `chr_set_generation` keeps the centromere revision.
+- `organism_deserialize` accepts every revision; VIV1 writers stay
   byte-compatible with the Lua reference.
 
 ## Freestanding checklist

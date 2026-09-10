@@ -55,7 +55,7 @@ physically survived.
   public.
 - Not a compressor: expect a small, deterministic size overhead (the
   VIV1 container adds ~3%).
-- Not production archival software — it is a rigorous toy: 453-check test
+- Not production archival software — it is a rigorous toy: 480-check test
   suite, official Chaskey-12 vectors, ASan-clean, but experimental.
 
 ## Quick start
@@ -67,7 +67,7 @@ beyond the CRT's `memcpy/memset/memcmp`:
 cd framework\C
 build.bat lib        rem framework only -> vivi.lib
 build.bat            rem + test suite + interactive demo
-vivi_test.exe        rem pass=453 fail=0
+vivi_test.exe        rem pass=480 fail=0
 build.bat density    rem packing-density report (bits/nt)
 build.bat sim        rem channel experiment sweep (CSV)
 build.bat research   rem full parameter sweeps -> research_*.csv
@@ -217,9 +217,13 @@ chromosome count and `max_gen`, then **both homologs** per chromosome — a
 divergence between the copies survives a save/load cycle.
 `organism_deserialize` reads both revisions.
 
-The ladder continues with `VIV14N` (parity genes) and `VIV14NB4NSH33`
-("Vivian Banshee", on-strand primers); see
-[docs/research.md](docs/research.md).
+`VIV14N` ([design](docs/viv14.md)): VIV14 plus **parity genes** stored in
+the chromosome (CEN2 centromere, gene-type marker), so `chr_read` can
+reconstruct erased genes with a systematic Reed-Solomon code — the outer
+code becomes part of the format.
+
+The ladder ends with `VIV14NB4NSH33` ("Vivian Banshee", on-strand
+primers); see [docs/research.md](docs/research.md).
 
 ## Documentation
 
@@ -242,7 +246,7 @@ The ladder continues with `VIV14N` (parity genes) and `VIV14NB4NSH33`
         ├── include/vivi/  public API: vivi.h, dna.h, genome.h, chromosome.h,
         │                  cell.h, organism.h
         ├── src/           the framework itself (no I/O, no CRT assumptions)
-        ├── test/          453-check self-test, density/sim tools, fuzz harnesses
+        ├── test/          480-check self-test, density/sim tools, fuzz harnesses
         │                  (own entrypoints, hosted; fuzz targets POSIX-only)
         ├── demo/          interactive terminal tamagotchi (own entrypoint, hosted)
         ├── vivi.lib       built with build.bat lib / make lib
@@ -259,7 +263,7 @@ Both write identical VIV1 bytes; from VIV14 on the C port is the reference.
 
 ## Verification
 
-- **453/453** checks: 64 official Chaskey-12 vectors; codec round-trips
+- **480/480** checks: 64 official Chaskey-12 vectors; codec round-trips
   for every parameter combination; constraint edge cases; gene/chromosome
   structure and corruption detection; diploid repair, checkpoints,
   senescence, stem rejuvenation; mutations, crossing-over mosaics; VIV1

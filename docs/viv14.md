@@ -22,7 +22,7 @@ once, with its own migration.
 |---|---|
 | `VIV1` | current format; stays readable forever |
 | `VIV14` | **this document**: versioned container, both homologs, `max_gen` |
-| `VIV14N` | parity genes as first-class chromosome members (outer code in the format) |
+| `VIV14N` | parity genes as first-class chromosome members (outer code in the format) — **implemented** |
 | `VIV14NB4NSH33` | "Vivian Banshee": on-strand primer sites for physical random access; layout freeze |
 
 Implementation policy from VIV14 on: **the C port is the reference**. The
@@ -100,8 +100,41 @@ VIV14 validation rules:
 - truncated/bad-flags VIV14 containers are rejected, not misparsed;
 - VIV1 roundtrip is unchanged (regression).
 
-## Out of scope for VIV14
+## VIV14N: parity genes in the chromosome
 
-- parity genes (`VIV14N`),
+A chromosome with `chr_opts.parity = m > 0` uses the second centromere
+revision and appends `m` parity genes after the data genes:
+
+```
+[TELOMERE][CEN2][data genes 0..n-1][parity genes n..n+m-1][TELOMERE]
+
+CEN2 = CMARK (3) + 32 codons (24), raw block (12 bytes, tagged):
+  id (1) | flags (1) | ngenes (2 BE) | generation (2 BE)
+  | parity (1) | reserved (1) | rawlen (4 BE)
+```
+
+- Data genes are the payload split by `gene_raw` (last one shorter); parity
+  genes carry `gene_raw` bytes each and are marked with bit 1 of the gene
+  `type` byte.
+- Shards are the data genes zero-padded to `gene_raw`; parity shards are a
+  systematic Reed-Solomon code over GF(256) (`vivi/parity.h`): **any `n` of
+  the `n + m` genes reconstruct the payload**.
+- `chr_read` reads directly when every data gene verifies its tag, and
+  falls back to RS reconstruction when some data genes are unreadable; a
+  parity gene that survives provides the shard length.
+- `chr_parse` detects CEN1 vs CEN2 by validating each centromere tag, so
+  VIV1/VIV14 chromosomes are unchanged and remain byte-identical.
+- Limits: `parity` in 1..16, `n + m <= 255` (gene ids are one byte).
+- `chr_set_generation` rewrites the matching centromere revision, keeping
+  parity and `rawlen`.
+
+Container: `organism_serialize14n` writes the `"VIV14N"` magic (6 bytes)
+with a parity byte per chromosome; `organism_container_version` returns
+`141`. `organism_deserialize` reads VIV1, VIV14 and VIV14N; when a VIV14
+container carries CEN2 chromosomes, the parity count is inferred from the
+strand.
+
+## Out of scope for VIV14/VIV14N
+
 - on-strand primers (`VIV14NB4NSH33`),
 - compression/checksums at the container level (genes already carry tags).

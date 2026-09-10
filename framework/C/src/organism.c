@@ -7,6 +7,8 @@ static const char *organism_err_sink;
 
 static const char ORG_MAGIC[4] = { 'V', 'I', 'V', '1' };
 static const char ORG_MAGIC14[5] = { 'V', 'I', 'V', '1', '4' };
+static const char ORG_MAGIC14N[6] = { 'V', 'I', 'V', '1', '4', 'N' };
+static const char ORG_BANSHEE[13] = { 'V', 'I', 'V', '1', '4', 'N', 'B', '4', 'N', 'S', 'H', '3', '3' };
 
 static void organism_free_arrays(vivi_organism *o)
 {
@@ -718,7 +720,8 @@ bool organism_serialize(vivi_bytes *out, vivi_organism *o, const char **err)
 	return true;
 }
 
-bool organism_serialize14(vivi_bytes *out, vivi_organism *o, const char **err)
+static bool organism_serialize_rev(vivi_bytes *out, vivi_organism *o,
+	const char *magic, size_t magic_len, int with_parity, const char **err)
 {
 	if (!err) err = &organism_err_sink;
 	*out = (vivi_bytes){ 0 };
@@ -732,7 +735,7 @@ bool organism_serialize14(vivi_bytes *out, vivi_organism *o, const char **err)
 		return false;
 	}
 	vivi_buf b = { 0 };
-	if (!vivi_buf_append(&b, ORG_MAGIC14, 5)
+	if (!vivi_buf_append(&b, magic, magic_len)
 		|| !vivi_buf_push(&b, 1)   /* flags: diploid pair stored */
 		|| !vivi_buf_push(&b, (uint8_t)((o->generation >> 8) & 255))
 		|| !vivi_buf_push(&b, (uint8_t)(o->generation & 255))
@@ -749,12 +752,13 @@ bool organism_serialize14(vivi_bytes *out, vivi_organism *o, const char **err)
 		int h = (opt->h ? opt->h : 3) - 1;
 		int gene_raw = opt->gene_raw ? opt->gene_raw : 1024;
 		int units = opt->units ? opt->units : 4;
-		uint8_t head[10] = {
+		int parity = opt->parity;
+		uint8_t head[7] = {
 			(uint8_t)o->chr_ids[i],
 			(uint8_t)((gene_raw >> 8) & 255), (uint8_t)(gene_raw & 255),
 			(uint8_t)((mode | (h << 1)) & 255),
 			(uint8_t)units, (uint8_t)opt->flags,
-			0, 0, 0, 0
+			(uint8_t)parity
 		};
 		uint8_t len0[4] = {
 			(uint8_t)((o->hlen[0][i] >> 24) & 255), (uint8_t)((o->hlen[0][i] >> 16) & 255),
@@ -764,7 +768,7 @@ bool organism_serialize14(vivi_bytes *out, vivi_organism *o, const char **err)
 			(uint8_t)((o->hlen[1][i] >> 24) & 255), (uint8_t)((o->hlen[1][i] >> 16) & 255),
 			(uint8_t)((o->hlen[1][i] >> 8) & 255), (uint8_t)(o->hlen[1][i] & 255)
 		};
-		if (!vivi_buf_append(&b, head, 10)
+		if (!vivi_buf_append(&b, head, with_parity ? 7 : 6)
 			|| !vivi_buf_append(&b, len0, 4)
 			|| !vivi_buf_append(&b, o->hom[0][i], o->hlen[0][i])
 			|| !vivi_buf_append(&b, len1, 4)
@@ -780,9 +784,21 @@ bool organism_serialize14(vivi_bytes *out, vivi_organism *o, const char **err)
 	return true;
 }
 
+bool organism_serialize14(vivi_bytes *out, vivi_organism *o, const char **err)
+{
+	return organism_serialize_rev(out, o, ORG_MAGIC14, 5, 0, err);
+}
+
+bool organism_serialize14n(vivi_bytes *out, vivi_organism *o, const char **err)
+{
+	return organism_serialize_rev(out, o, ORG_MAGIC14N, 6, 1, err);
+}
+
 int organism_container_version(const uint8_t *s, size_t len)
 {
 	if (!s) return 0;
+	if (len >= 13 && memcmp(s, ORG_BANSHEE, 13) == 0) return 143;  /* reserved */
+	if (len >= 6 && memcmp(s, ORG_MAGIC14N, 6) == 0) return 141;
 	if (len >= 5 && memcmp(s, ORG_MAGIC14, 5) == 0) return 14;
 	if (len >= 4 && memcmp(s, ORG_MAGIC, 4) == 0) return 1;
 	return 0;
@@ -867,17 +883,23 @@ static size_t load_be32(const uint8_t *p)
 		| ((size_t)p[2] << 8) | (size_t)p[3];
 }
 
-static bool organism_deserialize_viv14(vivi_organism **out, const uint8_t *s, size_t len,
-	const char **err)
+static bool organism_deserialize_rev(vivi_organism **out, const uint8_t *s, size_t len,
+	int with_parity, const char **err)
 {
-	if (len < 11) { *err = "bad format"; return false; }
-	if (memcmp(s, ORG_MAGIC14, 5) != 0) { *err = "bad magic"; return false; }
-	if (s[5] != 1) { *err = "unsupported flags"; return false; }
-	int generation = s[6] * 256 + s[7];
-	int nchr = s[8];
-	int max_gen = s[9] * 256 + s[10];
+	size_t mlen = with_parity ? 6 : 5;
+	size_t hdr = with_parity ? 12 : 11;
+	size_t chdr = with_parity ? 7 : 6;
+	if (len < hdr) { *err = "bad format"; return false; }
+	if (memcmp(s, with_parity ? ORG_MAGIC14N : ORG_MAGIC14, mlen) != 0) {
+		*err = "bad magic";
+		return false;
+	}
+	if (s[mlen] != 1) { *err = "unsupported flags"; return false; }
+	int generation = s[mlen + 1] * 256 + s[mlen + 2];
+	int nchr = s[mlen + 3];
+	int max_gen = s[mlen + 4] * 256 + s[mlen + 5];
 	if (nchr < 1) { *err = "bad chromosome count"; return false; }
-	size_t pos = 11;
+	size_t pos = hdr;
 	int *ids = vivi_alloc((size_t)nchr * sizeof(int));
 	chr_opts *opts_t = vivi_alloc((size_t)nchr * sizeof(chr_opts));
 	uint8_t **g0 = vivi_zalloc((size_t)nchr, sizeof(uint8_t *));
@@ -892,14 +914,15 @@ static bool organism_deserialize_viv14(vivi_organism **out, const uint8_t *s, si
 	}
 	int ok = 1;
 	for (int i = 0; i < nchr && ok; i++) {
-		if (pos + 10 + 4 > len) { *err = "truncated"; ok = 0; break; }
+		if (pos + chdr + 4 > len) { *err = "truncated"; ok = 0; break; }
 		int cid = s[pos];
 		int gene_raw = s[pos + 1] * 256 + s[pos + 2];
 		int mode = s[pos + 3] & 1;
 		int h = ((s[pos + 3] >> 1) & 15) + 1;
 		int units = s[pos + 4];
 		int flags = s[pos + 5];
-		pos += 10;
+		int parity = with_parity ? s[pos + 6] : 0;
+		pos += chdr;
 		if (gene_raw < 16 || h < 3 || h > 12 || units < 1) {
 			*err = "corrupt chromosome options";
 			ok = 0;
@@ -923,6 +946,7 @@ static bool organism_deserialize_viv14(vivi_organism **out, const uint8_t *s, si
 		chr_record r0, r1;
 		int ok0 = chr_parse(&r0, g0[i], sl0, -1, err);
 		int cen0 = ok0 && r0.cen_ok && r0.id == cid;
+		int cen_parity = (ok0 && r0.cen_ok) ? r0.parity : 0;
 		if (ok0) chr_record_free(&r0);
 		int ok1 = chr_parse(&r1, g1[i], sl1, -1, err);
 		int cen1 = ok1 && r1.cen_ok && r1.id == cid;
@@ -938,6 +962,8 @@ static bool organism_deserialize_viv14(vivi_organism **out, const uint8_t *s, si
 		opts_t[i].h = h;
 		opts_t[i].units = units;
 		opts_t[i].flags = flags;
+		/* VIV14N stores the parity count; VIV14 infers it from the strand */
+		opts_t[i].parity = with_parity ? parity : cen_parity;
 		l0[i] = sl0;
 		l1[i] = sl1;
 	}
@@ -966,9 +992,12 @@ bool organism_deserialize(vivi_organism **out, const uint8_t *s, size_t len, con
 	if (!err) err = &organism_err_sink;
 	*out = nullptr;
 	if (!s) { *err = "bad format"; return false; }
-	if (organism_container_version(s, len) == 14) {
-		const char *e14 = nullptr;
-		if (organism_deserialize_viv14(out, s, len, &e14)) return true;
+	int rev = organism_container_version(s, len);
+	if (rev == 143) { *err = "unsupported revision"; return false; }
+	if (rev == 141 || rev == 14) {
+		const char *erev = nullptr;
+		if (organism_deserialize_rev(out, s, len, rev == 141, &erev)) return true;
+		if (rev == 141) { *err = erev ? erev : "bad format"; return false; }
 		/* VIV1's generation high byte can be '4', so a VIV1 file may look
 		 * like a VIV14 one: fall back when the VIV14 structure is invalid */
 	}

@@ -199,10 +199,14 @@ typedef struct {
     int h;          /* dense gene homopolymer limit, 0 = default 3 */
     int units;      /* telomere repeat units, 0 = default 4 (>= 1) */
     int flags;      /* user byte, stored in the centromere */
+    int parity;     /* VIV14N: parity genes appended, 0..16 (0 = off) */
 } chr_opts;
 
 typedef struct {
     int id, flags, ngenes, generation;
+    int parity;          /* VIV14N: number of parity genes */
+    size_t rawlen;       /* VIV14N: true payload length */
+    int cen_version;     /* 1 = VIV1/VIV14 centromere, 2 = VIV14N */
     int telomere_ok, cen_ok;
     size_t telomere_bytes;
     genome_gene *genes;    /* owned; release with chr_record_free */
@@ -225,10 +229,14 @@ bool chr_set_generation(vivi_bytes *out, const uint8_t *strand, size_t slen,
   chromosome** (`data` larger than `256 * gene_raw` fails to encode).
 - `chr_parse` finds genes by scanning; `genes[i].offset` is absolute in the
   strand. A damaged centromere leaves `cen_ok == 0` and no genes.
-- `chr_read` is strict: requires a valid centromere, gene count match, no
-  duplicate/missing ids and every tag valid; then concatenates the payloads.
+- `chr_read` is strict for parity-free chromosomes: requires a valid
+  centromere, gene count match, no duplicate/missing ids and every tag
+  valid; then concatenates the payloads. With `parity > 0` (VIV14N) it
+  reconstructs missing data genes from the parity genes with the
+  Reed-Solomon code and only fails when fewer than `n` genes survive.
 - `chr_set_generation` re-stamps the centromere generation, preserving the
-  strand length byte for byte.
+  strand length byte for byte and keeping the centromere revision (CEN2
+  stays CEN2).
 
 ---
 
@@ -387,9 +395,10 @@ bool organism_cross(vivi_organism **out, vivi_organism *pa, vivi_organism *pb,
 ```c
 bool organism_serialize(vivi_bytes *out, vivi_organism *o, const char **err);   /* VIV1 */
 bool organism_serialize14(vivi_bytes *out, vivi_organism *o, const char **err); /* VIV14 */
-int  organism_container_version(const uint8_t *s, size_t len);  /* 0, 1 or 14 */
+bool organism_serialize14n(vivi_bytes *out, vivi_organism *o, const char **err);/* VIV14N */
+int  organism_container_version(const uint8_t *s, size_t len);  /* 0, 1, 14, 141 */
 bool organism_deserialize(vivi_organism **out, const uint8_t *s, size_t len,
-                          const char **err);   /* reads both revisions */
+                          const char **err);   /* reads all revisions */
 ```
 
 The `VIV1` container (byte-compatible with the Lua reference):
@@ -420,6 +429,11 @@ parse structurally and at least one intact centromere per chromosome.
 `organism_deserialize` sniffs the magic and accepts either revision; a
 VIV1 file whose generation high byte is `'4'` is retried as VIV1 when the
 VIV14 structure is invalid.
+
+The `VIV14N` container is the VIV14 layout with the `"VIV14N"` magic and
+one extra parity byte per chromosome (`organism_container_version` returns
+141); the payload bytes themselves live in CEN2 chromosomes as described
+in `docs/viv14.md`.
 
 ### Population maintenance
 

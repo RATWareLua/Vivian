@@ -296,7 +296,7 @@ static void test_chromosome(void)
 	uint8_t data[500];
 	rands(data, 500);
 	vivi_bytes chr;
-	chr_opts co = { 1024, 0, 3, 4, 0 };
+	chr_opts co = { 1024, 0, 3, 4, 0, 0 };
 	CHECK(chr_encode(&chr, 1, data, 500, &co, &err), "chr encode");
 	chr_record rec;
 	CHECK(chr_parse(&rec, chr.data, chr.len, -1, &err), "chr parse");
@@ -313,7 +313,7 @@ static void test_chromosome(void)
 	/* multi-gene */
 	uint8_t big[5000];
 	rands(big, 5000);
-	chr_opts co2 = { 1024, 0, 3, 4, 0 };
+	chr_opts co2 = { 1024, 0, 3, 4, 0, 0 };
 	(void)chr_encode(&chr, 2, big, 5000, &co2, &err);
 	(void)chr_parse(&rec, chr.data, chr.len, -1, &err);
 	CHECK(rec.ngenes == 5, "5 genes for 5000B @1024");
@@ -438,7 +438,7 @@ static void test_pool(void)
 	const char *err;
 	uint8_t payload[600];
 	rands(payload, sizeof(payload));
-	chr_opts co = { 64, 0, 3, 4, 0 };
+	chr_opts co = { 64, 0, 3, 4, 0, 0 };
 	vivi_bytes chr = { 0 };
 	CHECK(chr_encode(&chr, 0, payload, sizeof(payload), &co, &err), "pool chromosome");
 	vivi_pool pool = { 0 };
@@ -559,7 +559,7 @@ static void test_cells(void)
 {
 	uint8_t cdata[3000];
 	rands(cdata, 3000);
-	chr_opts co = { 1024, 0, 3, 4, 0 };
+	chr_opts co = { 1024, 0, 3, 4, 0, 0 };
 	const char *err;
 	vivi_cell *c;
 	(void)cell_new(&c, 1, cdata, 3000, &co, &ERR);
@@ -642,7 +642,7 @@ static void test_cells(void)
 /* ---------- organisms ---------- */
 static void test_organisms(void)
 {
-	chr_opts o1 = { 1024, 0, 3, 4, 0 };
+	chr_opts o1 = { 1024, 0, 3, 4, 0, 0 };
 	int ids[2] = { 0, 1 };
 	chr_opts opts[2] = { o1, o1 };
 	uint8_t d0[300], d1[200];
@@ -797,7 +797,7 @@ static void test_organisms(void)
 static void test_viv14(void)
 {
 	const char *err;
-	chr_opts o1 = { 1024, 0, 3, 4, 0 };
+	chr_opts o1 = { 1024, 0, 3, 4, 0, 0 };
 	int ids[1] = { 0 };
 	uint8_t d0[300];
 	rands(d0, 300);
@@ -875,6 +875,100 @@ static void test_viv14(void)
 	organism_free(org);
 }
 
+/* ---------- VIV14N parity genes ---------- */
+static void test_viv14n(void)
+{
+	const char *err;
+	uint8_t payload[700];
+	rands(payload, sizeof(payload));
+	chr_opts co = { 128, 0, 3, 4, 0, 2 };   /* 6 data genes + 2 parity genes */
+	vivi_bytes chr = { 0 };
+	CHECK(chr_encode(&chr, 1, payload, sizeof(payload), &co, &err), "viv14n encode");
+	chr_record rec;
+	CHECK(chr_parse(&rec, chr.data, chr.len, -1, &err), "viv14n parse");
+	CHECK(rec.cen_ok && rec.telomere_ok && rec.cen_version == 2, "viv14n centromere v2");
+	CHECK(rec.ngenes == 8 && rec.parity == 2 && rec.rawlen == sizeof(payload),
+		"viv14n header");
+	CHECK(rec.gene_count == 8, "viv14n genes");
+	int data_genes = 0, par_genes = 0;
+	for (size_t k = 0; k < rec.gene_count; k++) {
+		if (rec.genes[k].type & 2) par_genes++;
+		else data_genes++;
+	}
+	CHECK(data_genes == 6 && par_genes == 2, "viv14n gene types");
+	vivi_bytes back = { 0 };
+	CHECK(chr_read(&back, &rec, &err), "viv14n read");
+	CHECK(back.len == sizeof(payload) && memcmp(back.data, payload, sizeof(payload)) == 0,
+		"viv14n roundtrip");
+	vivi_bytes_free(&back);
+
+	/* break two data genes (tag fails) and recover through parity */
+	for (int k = 0; k < 2; k++)
+		chr.data[rec.genes[k].offset + 12] ^= 0x01;   /* first payload base */
+	chr_record rec2;
+	CHECK(chr_parse(&rec2, chr.data, chr.len, -1, &err), "viv14n parse damaged");
+	CHECK(rec2.gene_count == 8, "viv14n framing survives damage");
+	int damaged = 0;
+	for (size_t k = 0; k < rec2.gene_count; k++)
+		if (!rec2.genes[k].crc_ok) damaged++;
+	CHECK(damaged == 2, "viv14n two genes damaged");
+	CHECK(chr_read(&back, &rec2, &err), "viv14n parity read");
+	CHECK(back.len == sizeof(payload) && memcmp(back.data, payload, sizeof(payload)) == 0,
+		"viv14n parity recovery");
+	vivi_bytes_free(&back);
+
+	/* the same corruption without parity is unrecoverable */
+	chr_opts plain = { 128, 0, 3, 4, 0, 0 };
+	vivi_bytes chr0 = { 0 };
+	CHECK(chr_encode(&chr0, 1, payload, sizeof(payload), &plain, &err), "viv14n plain encode");
+	chr_record rec0;
+	CHECK(chr_parse(&rec0, chr0.data, chr0.len, -1, &err), "viv14n plain parse");
+	for (int k = 0; k < 2; k++)
+		chr0.data[rec0.genes[k].offset + 12] ^= 0x01;
+	chr_record rec0b;
+	CHECK(chr_parse(&rec0b, chr0.data, chr0.len, -1, &err), "viv14n plain reparse");
+	CHECK(!chr_read(&back, &rec0b, &err), "viv14n plain cannot recover");
+	chr_record_free(&rec0);
+	chr_record_free(&rec0b);
+	vivi_bytes_free(&chr0);
+
+	/* generation rewrite keeps the VIV14N centromere */
+	vivi_bytes gen = { 0 };
+	CHECK(chr_set_generation(&gen, chr.data, chr.len, 9, &err), "viv14n set generation");
+	chr_record recg;
+	CHECK(chr_parse(&recg, gen.data, gen.len, -1, &err), "viv14n reparsed generation");
+	CHECK(recg.cen_version == 2 && recg.generation == 9 && recg.parity == 2
+		&& recg.rawlen == sizeof(payload), "viv14n generation preserved");
+	chr_record_free(&recg);
+	vivi_bytes_free(&gen);
+
+	/* container VIV14N roundtrip keeps the parity option */
+	int ids[1] = { 1 };
+	const uint8_t *datas[1] = { payload };
+	const size_t lens[1] = { sizeof(payload) };
+	vivi_organism *org = nullptr;
+	CHECK(organism_new(&org, ids, &co, datas, lens, 1, 60, &err), "viv14n organism");
+	vivi_bytes ser = { 0 };
+	CHECK(organism_serialize14n(&ser, org, &err), "viv14n serialize");
+	CHECK(organism_container_version(ser.data, ser.len) == 141, "viv14n sniff");
+	vivi_organism *loaded = nullptr;
+	CHECK(organism_deserialize(&loaded, ser.data, ser.len, &err), "viv14n deserialize");
+	CHECK(loaded->chr_opts[0].parity == 2, "viv14n option preserved");
+	vivi_bytes *rd = nullptr;
+	cell_report rep;
+	CHECK(organism_read(&rd, loaded, &rep, &err), "viv14n organism read");
+	CHECK(rd[0].len == sizeof(payload) && memcmp(rd[0].data, payload, sizeof(payload)) == 0,
+		"viv14n organism payload");
+	vivi_bytes_free_n(rd, loaded->nchr);
+	organism_free(loaded);
+	vivi_bytes_free(&ser);
+	organism_free(org);
+
+	chr_record_free(&rec);
+	chr_record_free(&rec2);
+	vivi_bytes_free(&chr);
+}
+
 int main(void)
 {
 #ifdef _WIN32
@@ -896,6 +990,7 @@ int main(void)
 	test_cells();
 	test_organisms();
 	test_viv14();
+	test_viv14n();
 	dna_free_caches();
 #ifdef VIVI_TEST_TRACK
 	CHECK(g_live == 0, "no leaked allocations");
