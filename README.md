@@ -260,6 +260,10 @@ Experimental, but honest: the format is pinned by tests and two
 independent implementations agree on every byte. Expect the API to
 settle, not the fun to.
 
+## License
+
+BSD-3-Clause — see [LICENSE](LICENSE).
+
 ---
 *Что это по-русски:* C23-фреймворк, который хранит любые данные как диплоидный
 синтетический геном: нуклеотидный кодек, гены с тегом Chaskey-12, хромосомы
