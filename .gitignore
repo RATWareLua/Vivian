@@ -11,6 +11,8 @@ framework/C/*.ilk
 framework/C/*.plist
 framework/C/clang_rt.asan_dynamic-*.dll
 framework/C/research_*.csv
+framework/C/xcheck_c.txt
+framework/C/xcheck_lua.txt
 
 # Demo save file
 *.viv1

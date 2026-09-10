@@ -40,3 +40,13 @@ jobs:
       - name: Research sweep
         working-directory: framework/C
         run: make research CC=clang-${LLVM_VERSION}
+
+      - name: Cross-check C vs Lua (byte parity)
+        run: |
+          wget -qO /tmp/luau.zip https://github.com/luau-lang/luau/releases/latest/download/luau-ubuntu.zip
+          unzip -o /tmp/luau.zip -d /tmp/luau
+          /tmp/luau/luau --version || true
+          make -C framework/C xcheck CC=clang-${LLVM_VERSION} > /tmp/xcheck_c.txt
+          /tmp/luau/luau framework/luau/xcheck.lua > /tmp/xcheck_lua.txt
+          diff -u /tmp/xcheck_c.txt /tmp/xcheck_lua.txt
+          echo "C<->Lua byte parity OK ($(wc -l < /tmp/xcheck_c.txt) lines)"

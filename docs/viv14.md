@@ -26,8 +26,9 @@ once, with its own migration.
 | `VIV14NB4NSH33` | "Vivian Banshee": on-strand primer sites for physical random access; layout freeze |
 
 Implementation policy from VIV14 on: **the C port is the reference**. The
-Lua implementation remains the normative spec for VIV1; a Lua port of a
-later revision is a separate, deliberate porting task.
+Lua implementation in `framework/luau/` ports every revision (VIV14 and
+VIV14N included) and is verified against the C output byte for byte in
+CI (`make xcheck` / `framework/luau/xcheck.lua`).
 
 ## Wire format
 

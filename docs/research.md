@@ -231,8 +231,9 @@ first-class chromosome members (CEN2 centromere, RS reconstruction in
 [viv14.md](viv14.md).
 
 Still planned: `VIV14NB4NSH33` ("Vivian Banshee") — on-strand primer sites
-for physical random access; layout freeze. The Lua reference is being
-brought up to byte parity with the C port for every revision.
+for physical random access; layout freeze. The Lua reference is at byte
+parity with the C port for VIV1, VIV14 and VIV14N, enforced by the
+`xcheck` scenario pair in CI.
 
 ## Roadmap
 

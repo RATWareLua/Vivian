@@ -86,7 +86,8 @@ return.
   `(strand, rates, seed)` alone.
 - The C port is byte-compatible with the Lua reference (`framework/luau/`)
   for codec output, gene/chromosome encoding, damage patterns, cell
-  homologs and the `VIV1` container.
+  homologs and the `VIV1`, `VIV14` and `VIV14N` containers; CI enforces it
+  with the shared `xcheck` scenarios.
 
 ## Concurrency
 

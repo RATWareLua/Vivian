@@ -6,6 +6,7 @@ rem   build.bat test     build and run the test suite
 rem   build.bat density  build and run the packing-density report
 rem   build.bat sim      build and run a channel experiment
 rem   build.bat research run the full parameter sweeps -> research_*.csv
+rem   build.bat xcheck   byte-parity check against framework/luau/xcheck.lua
 rem   build.bat asan     build and run the test suite under ASan
 rem   build.bat fuzz     libFuzzer targets are POSIX-only (run make fuzz)
 rem   build.bat clean    remove outputs
@@ -21,6 +22,7 @@ if "%1"=="test" goto test
 if "%1"=="density" goto density
 if "%1"=="sim" goto sim
 if "%1"=="research" goto research
+if "%1"=="xcheck" goto xcheck
 if "%1"=="asan" goto asan
 if "%1"=="fuzz" goto fuzz
 goto all
@@ -89,6 +91,26 @@ exit /b 0
 echo libFuzzer targets are POSIX-only: run "make fuzz" on Linux/macOS.
 exit /b 1
 
+:xcheck
+if not exist ..\..\luau.exe (
+  echo luau.exe not found at the repo root: get it from
+  echo   https://github.com/luau-lang/luau/releases  -- luau-windows.zip
+  exit /b 1
+)
+%CC% %CFLAGS% -o xcheck_c.exe test\xcheck.c %LIBSRC%
+if errorlevel 1 exit /b 1
+xcheck_c.exe > xcheck_c.txt
+if errorlevel 1 exit /b 1
+..\..\luau.exe ..\luau\xcheck.lua > xcheck_lua.txt
+if errorlevel 1 exit /b 1
+fc /b xcheck_c.txt xcheck_lua.txt >nul
+if errorlevel 1 (
+  echo BYTE PARITY FAILED: xcheck_c.txt vs xcheck_lua.txt
+  exit /b 1
+)
+echo C^<-^>Lua byte parity OK
+exit /b 0
+
 :asan
 rem copy the ASan runtime next to the test binary, where the loader finds it
 for /f "delims=" %%i in ('%CC% -print-resource-dir') do set RD=%%i
@@ -108,6 +130,7 @@ exit /b 0
 
 :clean
 del vivi_test.exe vivi_demo.exe density.exe vivi_sim.exe vivi.lib vivi_test_asan.exe vivi_test_asan.ilk vivi_test_asan.pdb research_whole.csv research_access.csv research_library.csv *.obj 2>nul
+del xcheck_c.exe xcheck_c.txt xcheck_lua.txt 2>nul
 del clang_rt.asan_dynamic-x86_64.dll 2>nul
 exit /b 0
 

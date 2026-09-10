@@ -11,20 +11,23 @@ then follow the two references:
 4. [`viv14.md`](viv14.md) — the VIV14 container design, wire format and
    migration rules.
 
-The Lua implementation in `framework/luau/` is the normative byte-format
-reference: for the same inputs the C port produces exactly the same bytes.
+The Lua implementation in `framework/luau/` is the byte-format reference:
+for the same inputs the C port produces exactly the same bytes. Both
+sides are cross-checked in CI (`test/xcheck.c` vs `framework/luau/xcheck.lua`)
+for every revision, VIV1 through VIV14N.
 
 ## Build and run
 
 ```bat
 cd framework\C
 build.bat lib        rem static library -> vivi.lib
-build.bat test       rem 387-check suite
+build.bat test       rem 480-check suite
 build.bat asan       rem the same suite under AddressSanitizer
 build.bat density    rem packing-density report
+build.bat xcheck     rem C<->Lua byte parity against framework/luau/xcheck.lua
 ```
 
-`make lib | test | demo | density | asan` is equivalent on POSIX.
+`make lib | test | demo | density | xcheck | asan` is equivalent on POSIX.
 Public headers live in `include/vivi/`; include them as `#include <vivi/organism.h>`.
 
 ## Minimal tracked example
@@ -37,7 +40,7 @@ int main(void)
 {
     const char *err = nullptr;
     const int ids[2] = { 0, 1 };
-    const chr_opts co = { 1024, 0, 3, 4, 0 };   /* gene_raw, codon, h, units, flags */
+    const chr_opts co = { 1024, 0, 3, 4, 0, 0 };   /* gene_raw, codon, h, units, flags, parity */
     const chr_opts opts[2] = { co, co };
     static const char D0[] = "BRAIN:CURIOUS;SPEED:12;";
     static const char D1[] = "METABOLISM:FAST;STAMINA:100;";

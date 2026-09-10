@@ -8,7 +8,7 @@ LIBOBJ  := $(LIBSRC:.c=.o)
 
 FUZZ_BIN := $(patsubst test/fuzz/%.c,vivi_fuzz_%,$(wildcard test/fuzz/*.c))
 
-.PHONY: all lib test demo density sim research fuzz fuzz-smoke asan clean
+.PHONY: all lib test demo density sim research xcheck fuzz fuzz-smoke asan clean
 
 all: vivi.a vivi_test.exe vivi_demo.exe
 
@@ -58,6 +58,14 @@ asan:
 	$(CC) -std=c23 -O1 -g -fsanitize=address,undefined -DVIVI_TEST_TRACK -Iinclude -o vivi_test_asan test/test.c $(LIBSRC)
 	./vivi_test_asan
 
+# deterministic byte-parity scenarios shared with framework/luau/xcheck.lua;
+# CI diffs the two outputs (portable -- runs anywhere clang runs)
+xcheck.exe: test/xcheck.c $(LIBSRC) $(HDRS)
+	$(CC) $(CFLAGS) -o $@ test/xcheck.c $(LIBSRC)
+
+xcheck: xcheck.exe
+	@./xcheck.exe
+
 # full parameter sweeps -> research_whole.csv, research_access.csv, research_library.csv
 research: sim.exe
 	./sim.exe --size 1024 --gene-raw 64 --trials 1000 --p-sub 0 --header > research_whole.csv
@@ -87,4 +95,4 @@ fuzz-smoke: $(FUZZ_BIN)
 	done
 
 clean:
-	rm -f vivi.a vivi_test.exe vivi_demo.exe density.exe sim.exe vivi_test_asan $(FUZZ_BIN) research_*.csv src/*.o
+	rm -f vivi.a vivi_test.exe vivi_demo.exe density.exe sim.exe xcheck.exe vivi_test_asan $(FUZZ_BIN) research_*.csv src/*.o

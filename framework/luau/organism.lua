@@ -34,6 +34,9 @@ local band, bxor, lshift, rshift, bor =
 local unpack = table.unpack or unpack
 
 local MAGIC = "VIV1"
+local MAGIC14 = "VIV14"
+local MAGIC14N = "VIV14N"
+local MAGIC_BANSHEE = "VIV14NB4NSH33"
 
 local function bytes_to_string(t)
 	local res = {}
@@ -333,7 +336,64 @@ local function serialize(org)
 	return concat(t)
 end
 
-local function deserialize(s)
+-- VIV14 / VIV14N: versioned container with both homologs and max_gen.
+-- VIV14N additionally stores the parity count per chromosome; when a
+-- VIV14 container carries CEN2 strands the count is inferred from them.
+local function serialize_rev(org, magic, with_parity)
+	if org.dead or not org.homologs then return nil, "organism dead" end
+	if org.generation < 0 or org.generation > 65535 then
+		return nil, "generation out of range"
+	end
+	if org.max_gen < 0 or org.max_gen > 65535 then
+		return nil, "max_gen out of range"
+	end
+	local t = { magic, char(1),  -- flags: diploid pair stored
+		char(band(rshift(org.generation, 8), 255), band(org.generation, 255)),
+		char(#org.chr_ids),
+		char(band(rshift(org.max_gen, 8), 255), band(org.max_gen, 255)) }
+	for i = 1, #org.chr_ids do
+		local s0, s1 = org.homologs[1][i], org.homologs[2][i]
+		local o = org.chr_opts[i] or {}
+		local mode = (o.mode or "dense") == "codon" and 1 or 0
+		local h = (o.h or 3) - 1
+		local gene_raw = o.gene_raw or 1024
+		local head = char(org.chr_ids[i],
+			band(rshift(gene_raw, 8), 255), band(gene_raw, 255),
+			band(bor(mode, lshift(h, 1)), 255),
+			band(o.units or 4, 255), band(o.flags or 0, 255))
+		if with_parity then
+			head = head .. char(band(o.parity or 0, 255))
+		end
+		t[#t + 1] = head
+		t[#t + 1] = char(band(rshift(#s0, 24), 255), band(rshift(#s0, 16), 255),
+			band(rshift(#s0, 8), 255), band(#s0, 255))
+		t[#t + 1] = s0
+		t[#t + 1] = char(band(rshift(#s1, 24), 255), band(rshift(#s1, 16), 255),
+			band(rshift(#s1, 8), 255), band(#s1, 255))
+		t[#t + 1] = s1
+	end
+	return concat(t)
+end
+
+local function serialize14(org)
+	return serialize_rev(org, MAGIC14, false)
+end
+
+local function serialize14n(org)
+	return serialize_rev(org, MAGIC14N, true)
+end
+
+local function container_version(s)
+	if type(s) ~= "string" then return 0 end
+	-- "VIV14NB4NSH33" is reserved (not implemented yet)
+	if #s >= 13 and sub(s, 1, 13) == MAGIC_BANSHEE then return 143 end
+	if #s >= 6 and sub(s, 1, 6) == MAGIC14N then return 141 end
+	if #s >= 5 and sub(s, 1, 5) == MAGIC14 then return 14 end
+	if #s >= 4 and sub(s, 1, 4) == MAGIC then return 1 end
+	return 0
+end
+
+local function deserialize_viv1(s)
 	if type(s) ~= "string" or #s < 7 then return nil, "bad format" end
 	if sub(s, 1, 4) ~= MAGIC then return nil, "bad magic" end
 	local generation = byte(s, 5) * 256 + byte(s, 6)
@@ -380,6 +440,91 @@ local function deserialize(s)
 	}
 end
 
+local function be32(s, p)
+	return byte(s, p) * 0x1000000 + byte(s, p + 1) * 0x10000
+		+ byte(s, p + 2) * 0x100 + byte(s, p + 3)
+end
+
+local function deserialize_rev(s, with_parity)
+	local mlen = with_parity and 6 or 5
+	local hdr = with_parity and 12 or 11
+	local chdr = with_parity and 7 or 6
+	if #s < hdr then return nil, "bad format" end
+	if sub(s, 1, mlen) ~= (with_parity and MAGIC14N or MAGIC14) then
+		return nil, "bad magic"
+	end
+	if byte(s, mlen + 1) ~= 1 then return nil, "unsupported flags" end
+	local generation = byte(s, mlen + 2) * 256 + byte(s, mlen + 3)
+	local nchr = byte(s, mlen + 4)
+	local max_gen = byte(s, mlen + 5) * 256 + byte(s, mlen + 6)
+	if nchr < 1 then return nil, "bad chromosome count" end
+	local pos = hdr + 1
+	local ids, opts_t, gA, gB = {}, {}, {}, {}
+	for i = 1, nchr do
+		if pos + chdr + 4 - 1 > #s then return nil, "truncated" end
+		local cid = byte(s, pos)
+		local gene_raw = byte(s, pos + 1) * 256 + byte(s, pos + 2)
+		local mode_h = byte(s, pos + 3)
+		local mode = (band(mode_h, 1) == 1) and "codon" or "dense"
+		local h = band(rshift(mode_h, 1), 15) + 1
+		local units = byte(s, pos + 4)
+		local flags = byte(s, pos + 5)
+		local parity_byte = with_parity and byte(s, pos + 6) or 0
+		pos = pos + chdr
+		if gene_raw < 16 or h < 3 or h > 12 or units < 1 then
+			return nil, "corrupt chromosome options"
+		end
+		local sl0 = be32(s, pos)
+		pos = pos + 4
+		if pos + sl0 - 1 > #s then return nil, "truncated" end
+		local s0 = sub(s, pos, pos + sl0 - 1)
+		pos = pos + sl0
+		local sl1 = be32(s, pos)
+		pos = pos + 4
+		if pos + sl1 - 1 > #s then return nil, "truncated" end
+		local s1 = sub(s, pos, pos + sl1 - 1)
+		pos = pos + sl1
+		-- both homologs must parse; at least one centromere must be intact
+		local r0 = chromosome.parse(s0)
+		local r1 = chromosome.parse(s1)
+		if not r0 or not r1 then return nil, "corrupt chromosome" end
+		local cen0 = r0.cen_ok and r0.id == cid
+		local cen1 = r1.cen_ok and r1.id == cid
+		if not cen0 and not cen1 then return nil, "corrupt chromosome" end
+		ids[i] = cid
+		opts_t[i] = {
+			gene_raw = gene_raw, mode = mode, h = h, units = units, flags = flags,
+			-- VIV14N stores the parity count; VIV14 infers it from the strand
+			parity = with_parity and parity_byte or r0.parity,
+		}
+		gA[i], gB[i] = s0, s1
+	end
+	return {
+		chr_ids = ids,
+		chr_opts = opts_t,
+		homologs = { gA, gB },
+		generation = generation,
+		max_gen = max_gen ~= 0 and max_gen or 60,
+		stem = false,
+		dead = false,
+		stem_source = nil,
+	}
+end
+
+local function deserialize(s)
+	if type(s) ~= "string" then return nil, "bad format" end
+	local rev = container_version(s)
+	if rev == 143 then return nil, "unsupported revision" end
+	if rev == 141 then return deserialize_rev(s, true) end
+	if rev == 14 then
+		local o = deserialize_rev(s, false)
+		if o then return o end
+		-- VIV1's generation high byte can be '4', so a VIV1 file may look
+		-- like a VIV14 one: fall back when the VIV14 structure is invalid
+	end
+	return deserialize_viv1(s)
+end
+
 local function maintain(organisms, stemOrg)
 	local report = { checked = #organisms, repaired = 0, renewed = 0, dead = 0 }
 	for i = 1, #organisms do
@@ -424,6 +569,9 @@ return {
 	mutate = mutate,
 	cross = cross,
 	serialize = serialize,
+	serialize14 = serialize14,
+	serialize14n = serialize14n,
+	container_version = container_version,
 	deserialize = deserialize,
 	maintain = maintain,
 }

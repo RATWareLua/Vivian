@@ -71,11 +71,12 @@ vivi_test.exe        rem pass=480 fail=0
 build.bat density    rem packing-density report (bits/nt)
 build.bat sim        rem channel experiment sweep (CSV)
 build.bat research   rem full parameter sweeps -> research_*.csv
+build.bat xcheck     rem C<->Lua byte parity (needs luau.exe at the repo root)
 build.bat asan       rem test suite under AddressSanitizer
 ```
 
 Or with `make`: `make lib`, `make test`, `make demo`, `make density`,
-`make sim`, `make research`, `make fuzz`, `make asan`.
+`make sim`, `make research`, `make xcheck`, `make fuzz`, `make asan`.
 
 ### Hello, organism
 
@@ -87,7 +88,7 @@ int main(void)
 {
     const char *err = nullptr;
     const int ids[2] = { 0, 1 };
-    const chr_opts co[2] = { { 1024, 0, 3, 4, 0 }, { 1024, 0, 3, 4, 0 } };
+    const chr_opts co[2] = { { 1024, 0, 3, 4, 0, 0 }, { 1024, 0, 3, 4, 0, 0 } };
     static const char D0[] = "BRAIN:CURIOUS;SPEED:12;";
     static const char D1[] = "METABOLISM:FAST;STAMINA:100;";
     const uint8_t *data[2] = { (const uint8_t *)D0, (const uint8_t *)D1 };
@@ -259,7 +260,9 @@ hackable (run it with any Luau runtime, e.g.
 `luau framework/luau/demo.lua`; the interpreter binary is not bundled —
 grab one from the [luau-lang/luau releases](https://github.com/luau-lang/luau/releases)),
 while `C/` is the deployable engine.
-Both write identical VIV1 bytes; from VIV14 on the C port is the reference.
+Both write identical VIV1 bytes; from VIV14 on the C port is the reference,
+and the Lua framework now ports every revision (VIV14, VIV14N) with the
+byte parity enforced in CI.
 
 ## Verification
 
@@ -273,7 +276,10 @@ Both write identical VIV1 bytes; from VIV14 on the C port is the reference.
   (`dna_free_caches()`), so a CRT leak check is clean as well.
 - libFuzzer harnesses for every parser (`make fuzz-smoke`, POSIX) and
   `make research` sweeps; both run in CI.
-- Byte-format equality between the Lua reference and the C port.
+- Byte-format equality between the Lua reference and the C port: the
+  shared `xcheck` scenarios (chromosome VIV1/VIV14N, parity recovery,
+  organism VIV14/VIV14N serialization, damage, replication, crossing,
+  mutation) produce identical hex on both sides; CI diffs them.
 
 ## Status
 
