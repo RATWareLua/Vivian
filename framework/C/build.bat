@@ -44,7 +44,7 @@ exit /b %errorlevel%
 rem copy the ASan runtime next to the test binary, where the loader finds it
 for /f "delims=" %%i in ('%CC% -print-resource-dir') do set RD=%%i
 if exist "%RD%\lib\windows\clang_rt.asan_dynamic-x86_64.dll" copy /y "%RD%\lib\windows\clang_rt.asan_dynamic-x86_64.dll" . >nul
-%CC% %CFLAGS% -O1 -g -fsanitize=address -o vivi_test_asan.exe test\test.c %LIBSRC%
+%CC% %CFLAGS% -O1 -g -fsanitize=address -DVIVI_TEST_TRACK -o vivi_test_asan.exe test\test.c %LIBSRC%
 if errorlevel 1 exit /b 1
 vivi_test_asan.exe
 exit /b %errorlevel%

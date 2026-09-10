@@ -20,6 +20,23 @@ static int g_pass = 0, g_fail = 0;
 	else { g_fail++; fprintf(stderr, "FAIL: %s\n", (msg)); } \
 } while (0)
 
+/* With -DVIVI_TEST_TRACK every library allocation is counted, so a
+ * non-zero balance at exit is a leak even on platforms without LSan. */
+#ifdef VIVI_TEST_TRACK
+static long g_live;
+static void *track_alloc(size_t n)
+{
+	void *p = malloc(n ? n : 1);
+	if (p) g_live++;
+	return p;
+}
+static void track_free(void *p)
+{
+	if (p) g_live--;
+	free(p);
+}
+#endif
+
 static uint32_t trnd_state = 0xC0FFEEu;
 static uint32_t trnd(void)
 {
@@ -129,12 +146,12 @@ static const int hs[12] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
 
 static void test_dna(void)
 {
-	uint8_t *zero1k = calloc(1024, 1);
-	uint8_t *ff1k = malloc(1024);
+	uint8_t *zero1k = vivi_zalloc(1024, 1);
+	uint8_t *ff1k = vivi_alloc(1024);
 	memset(ff1k, 255, 1024);
-	uint8_t *r1k = malloc(1024);
+	uint8_t *r1k = vivi_alloc(1024);
 	rands(r1k, 1024);
-	uint8_t *r8k = malloc(8192);
+	uint8_t *r8k = vivi_alloc(8192);
 	rands(r8k, 8192);
 	const uint8_t *cases[6] = { (const uint8_t *)"", (const uint8_t *)"a",
 		(const uint8_t *)"Hello, DNA!", zero1k, ff1k, r8k };
@@ -167,10 +184,10 @@ static void test_dna(void)
 			vivi_bytes_free(&back);
 		}
 	}
-	free(zero1k);
-	free(ff1k);
-	free(r1k);
-	free(r8k);
+	vivi_dealloc(zero1k);
+	vivi_dealloc(ff1k);
+	vivi_dealloc(r1k);
+	vivi_dealloc(r8k);
 
 	vivi_bytes r;
 	CHECK(!dna_decode(&r, nullptr, 0, &ERR), "decode empty rejected");
@@ -181,15 +198,18 @@ static void test_dna(void)
 	CHECK(!dna_decode(&r, full.data, full.len / 2, &ERR), "truncated strand rejected");
 	vivi_bytes_free(&full);
 
-	vivi_bytes c1, c2, c3;
+	vivi_bytes c1 = { 0 }, c2 = { 0 }, c3 = { 0 };
 	(void)dna_encode(&c1, (const uint8_t *)"xy", 2, nullptr, &ERR);
 	(void)dna_complement(&c2, c1.data, c1.len, &ERR);
 	(void)dna_complement(&c3, c2.data, c2.len, &ERR);
 	CHECK(c3.len == c1.len && memcmp(c3.data, c1.data, c1.len) == 0, "complement involution");
+	vivi_bytes_free(&c2);
 	(void)dna_reverse_complement(&c2, c1.data, c1.len, &ERR);
 	CHECK(c2.len == c1.len && c2.data[0] == (uint8_t)(c1.data[c1.len - 1] ^ 0xFF),
 		"reverse complement");
+	vivi_bytes_free(&c2);
 	(void)dna_to_ascii(&c2, c1.data, c1.len, -1, &ERR);
+	vivi_bytes_free(&c3);
 	(void)dna_from_ascii(&c3, (const char *)c2.data, c2.len, &ERR);
 	CHECK(c3.len == c1.len && memcmp(c3.data, c1.data, c1.len) == 0, "ascii pack/unpack");
 	CHECK(!dna_from_ascii(&r, "ACGX", 4, &ERR), "ascii rejects bad base");
@@ -213,26 +233,26 @@ static void test_genome(void)
 		const size_t lens[5] = { 0, 1, 3, 100, 1000 };
 		for (int ci = 0; ci < 5; ci++) {
 			size_t len = lens[ci];
-			uint8_t *data = malloc(len ? len : 1);
+			uint8_t *data = vivi_alloc(len ? len : 1);
 			rands(data, len);
 			vivi_bytes g;
 			if (!genome_gene_encode(&g, 7, 0, mode, 3, data, len, &ERR)) {
 				printf("FAIL: gene encode mode=%d len=%zu: %s\n", mode, len, ERR);
 				g_fail++;
-				free(data);
+				vivi_dealloc(data);
 				continue;
 			}
 			genome_gene rd;
 			CHECK(genome_gene_read(&rd, g.data, g.len, -1, &ERR), "gene roundtrip");
 			CHECK(rd.id == 7 && rd.crc_ok && rd.data_len == len
 				&& memcmp(rd.data, data, len) == 0, "gene data intact");
-			free(rd.data);
+			vivi_dealloc(rd.data);
 			genome_scan_result sc;
 			(void)genome_gene_scan(&sc, g.data, g.len, &ERR);
 			CHECK(sc.count == 1, "scan single gene");
 			genome_scan_free(&sc);
 			vivi_bytes_free(&g);
-			free(data);
+			vivi_dealloc(data);
 		}
 	}
 	/* multi-gene scan */
@@ -243,7 +263,7 @@ static void test_genome(void)
 	(void)genome_gene_encode(&g2, 2, 0, 1, 3, (const uint8_t *)"beta-data", 9, &ERR);
 	(void)genome_gene_encode(&g3, 3, 0, 0, 3, big, 300, &ERR);
 	size_t clen = g1.len + g2.len + g3.len;
-	uint8_t *chrom = malloc(clen);
+	uint8_t *chrom = vivi_alloc(clen);
 	size_t pos = 0;
 	memcpy(chrom + pos, g1.data, g1.len); pos += g1.len;
 	memcpy(chrom + pos, g2.data, g2.len); pos += g2.len;
@@ -260,7 +280,7 @@ static void test_genome(void)
 			"gene 2 data");
 	}
 	genome_scan_free(&sc);
-	free(chrom);
+	vivi_dealloc(chrom);
 	vivi_bytes_free(&g1);
 	vivi_bytes_free(&g2);
 	vivi_bytes_free(&g3);
@@ -338,7 +358,7 @@ static void test_cells(void)
 	(void)cell_new(&c, 1, cdata, 3000, &co, &ERR);
 	vivi_bytes dmg;
 	(void)cell_damage_strand(&dmg, c->hom[0], c->hlen[0], 200, 42, &err);
-	free(c->hom[0]);
+	vivi_dealloc(c->hom[0]);
 	c->hom[0] = dmg.data;
 	c->hlen[0] = dmg.len;
 	cell_report rep = cell_checkpoint(c);
@@ -365,11 +385,11 @@ static void test_cells(void)
 	vivi_cell *c2;
 	(void)cell_new(&c2, 1, cdata, 3000, &co, &err);
 	(void)cell_damage_strand(&dmg, c2->hom[0], c2->hlen[0], 500, 777, &err);
-	free(c2->hom[0]);
+	vivi_dealloc(c2->hom[0]);
 	c2->hom[0] = dmg.data;
 	c2->hlen[0] = dmg.len;
 	(void)cell_damage_strand(&dmg, c2->hom[1], c2->hlen[1], 500, 777, &err);
-	free(c2->hom[1]);
+	vivi_dealloc(c2->hom[1]);
 	c2->hom[1] = dmg.data;
 	c2->hlen[1] = dmg.len;
 	cell_checkpoint(c2);
@@ -396,11 +416,14 @@ static void test_cells(void)
 	CHECK(cell_mitosis(&dau, aged, &err), "mitosis 1 ok");
 	cell_free(dau);
 	CHECK(cell_mitosis(&dau, aged, &err), "mitosis 2 ok");
+	cell_free(dau);
+	dau = nullptr;
 	{
 		const char *e2 = nullptr;
 		int sen = !cell_mitosis(&dau, aged, &e2) && e2 != nullptr
 			&& strcmp(e2, "senescent") == 0;
 		CHECK(sen, "Hayflick limit");
+		if (dau) cell_free(dau);
 	}
 	cell_free(aged);
 	cell_free(par);
@@ -439,7 +462,7 @@ static void test_organisms(void)
 	{
 		vivi_bytes dmg;
 		(void)cell_damage_strand(&dmg, org->hom[0][1], org->hlen[0][1], 150, 5, &ERR);
-		free(org->hom[0][1]);
+		vivi_dealloc(org->hom[0][1]);
 		org->hom[0][1] = dmg.data;
 		org->hlen[0][1] = dmg.len;
 	}
@@ -458,11 +481,11 @@ static void test_organisms(void)
 	{
 		vivi_bytes dmg;
 		(void)cell_damage_strand(&dmg, org2->hom[0][1], org2->hlen[0][1], 500, 777, &ERR);
-		free(org2->hom[0][1]);
+		vivi_dealloc(org2->hom[0][1]);
 		org2->hom[0][1] = dmg.data;
 		org2->hlen[0][1] = dmg.len;
 		(void)cell_damage_strand(&dmg, org2->hom[1][1], org2->hlen[1][1], 500, 777, &ERR);
-		free(org2->hom[1][1]);
+		vivi_dealloc(org2->hom[1][1]);
 		org2->hom[1][1] = dmg.data;
 		org2->hlen[1][1] = dmg.len;
 	}
@@ -570,6 +593,9 @@ int main(void)
 	_CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDERR);
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 #endif
+#ifdef VIVI_TEST_TRACK
+	vivi_set_allocator(track_alloc, track_free);
+#endif
 	test_chaskey();
 	test_dna();
 	test_genome();
@@ -577,6 +603,9 @@ int main(void)
 	test_cells();
 	test_organisms();
 	dna_free_caches();
+#ifdef VIVI_TEST_TRACK
+	CHECK(g_live == 0, "no leaked allocations");
+#endif
 	printf("\npass=%d fail=%d\n", g_pass, g_fail);
 	return g_fail ? 1 : 0;
 }

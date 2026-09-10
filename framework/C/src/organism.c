@@ -615,12 +615,12 @@ bool organism_cross(vivi_organism **out, vivi_organism *pa, vivi_organism *pb,
 					}
 					if (!ok) {
 						vivi_dealloc(g1[i]);
-						vivi_dealloc(strand.data);
+						vivi_dealloc(g2[i]);
 						g1[i] = nullptr;
 						g2[i] = nullptr;
-					} else {
-						strand.data = nullptr;
 					}
+					/* the staged strand is copied into the homologs, not kept */
+					vivi_dealloc(strand.data);
 				}
 			}
 			vivi_buf_free(&parts);

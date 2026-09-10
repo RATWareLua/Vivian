@@ -38,7 +38,7 @@ density: density.exe
 	./density.exe
 
 asan: 
-	$(CC) -std=c23 -O1 -g -fsanitize=address,undefined -Iinclude -o vivi_test_asan test/test.c $(LIBSRC)
+	$(CC) -std=c23 -O1 -g -fsanitize=address,undefined -DVIVI_TEST_TRACK -Iinclude -o vivi_test_asan test/test.c $(LIBSRC)
 	./vivi_test_asan
 
 clean:
