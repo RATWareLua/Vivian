@@ -32,3 +32,11 @@ jobs:
       - name: AddressSanitizer + UBSan
         working-directory: framework/C
         run: make asan CC=clang-${LLVM_VERSION}
+
+      - name: Fuzz smoke (libFuzzer)
+        working-directory: framework/C
+        run: make fuzz-smoke CC=clang-${LLVM_VERSION}
+
+      - name: Research sweep
+        working-directory: framework/C
+        run: make research CC=clang-${LLVM_VERSION}

@@ -70,11 +70,12 @@ build.bat            rem + test suite + interactive demo
 vivi_test.exe        rem pass=434 fail=0
 build.bat density    rem packing-density report (bits/nt)
 build.bat sim        rem channel experiment sweep (CSV)
+build.bat research   rem full parameter sweeps -> research_*.csv
 build.bat asan       rem test suite under AddressSanitizer
 ```
 
 Or with `make`: `make lib`, `make test`, `make demo`, `make density`,
-`make sim`, `make asan`.
+`make sim`, `make research`, `make fuzz`, `make asan`.
 
 ### Hello, organism
 
@@ -218,7 +219,7 @@ named `VIV14` → `VIV14N` → `VIV14NB4NSH33` ("Vivian Banshee"); see
 - [`docs/README.md`](docs/README.md) — orientation, build/run, a tracked usage example
 - [`docs/api.md`](docs/api.md) — module-by-module API reference
 - [`docs/contracts.md`](docs/contracts.md) — memory ownership, errors, limits, determinism, threading
-- [`docs/research.md`](docs/research.md) — error channel, `vivi_sim` experiments, format evolution plan
+- [`docs/research.md`](docs/research.md) — error channel, `vivi_sim` experiments, fuzzing, format evolution plan
 
 ## Layout
 
@@ -233,12 +234,12 @@ named `VIV14` → `VIV14N` → `VIV14NB4NSH33` ("Vivian Banshee"); see
         ├── include/vivi/  public API: vivi.h, dna.h, genome.h, chromosome.h,
         │                  cell.h, organism.h
         ├── src/           the framework itself (no I/O, no CRT assumptions)
-        ├── test/          434-check self-test, density and sim reports
-        │                  (own entrypoints, hosted)
+        ├── test/          434-check self-test, density/sim tools, fuzz harnesses
+        │                  (own entrypoints, hosted; fuzz targets POSIX-only)
         ├── demo/          interactive terminal tamagotchi (own entrypoint, hosted)
         ├── vivi.lib       built with build.bat lib / make lib
-        ├── build.bat      all | lib | test | density | sim | asan | clean
-        └── Makefile       all | lib | test | demo | density | sim | asan | clean
+        ├── build.bat      all | lib | test | density | sim | research | asan | clean
+        └── Makefile       all | lib | test | demo | density | sim | research | fuzz | asan | clean
 ```
 
 The two implementations are independent: `luau/` is readable and
@@ -258,6 +259,8 @@ Both write identical bytes.
 - AddressSanitizer-clean: `build.bat asan` / `make asan` runs the suite
   under ASan. The codec's lazy tables are released at exit
   (`dna_free_caches()`), so a CRT leak check is clean as well.
+- libFuzzer harnesses for every parser (`make fuzz-smoke`, POSIX) and
+  `make research` sweeps; both run in CI.
 - Byte-format equality between the Lua reference and the C port.
 
 ## Status

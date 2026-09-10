@@ -162,6 +162,75 @@ among 20), and the combination is nearly lossless at 2.5× storage. With no
 redundancy the baseline is 0.006 — every one of 16 genes must survive, and
 each has only ~67% chance at this error rate.
 
+## Fuzzing
+
+`test/fuzz/` holds one libFuzzer harness per parser: `dna.c` (strand, ASCII
+view and channel), `gene.c`, `chr.c`, `viv1.c` (container), `pool.c` and
+`parity.c`. Each harness pushes a cached valid sample through the parser
+first, then the fuzz input, so the valid path runs on every iteration.
+
+```bat
+make fuzz          rem build every harness (clang + libFuzzer, POSIX)
+make fuzz-smoke    rem 10 s per harness; this is what CI runs
+```
+
+libFuzzer requires `-fsanitize=fuzzer` and is not available under Windows
+clang; the harnesses are POSIX-only (the library itself still builds
+everywhere).
+
+## Channel assumptions
+
+Modelled: independent per-base substitution, insertion and deletion with
+fixed rates, plus whole-read dropout, all deterministic per seed.
+
+Not modelled (yet): context-dependent rates (homopolymers, GC), PCR
+amplification bias, per-oligo synthesis dropout, read truncation and quality
+scores, adapter contamination, coverage distributions, correlated bursts.
+Treat absolute numbers as comparative, not as predictions for a specific
+sequencing platform.
+
+## Related work
+
+- G. M. Church, Y. Gao, S. Kosuri, *Science* 337 (2012) — DNA as a storage medium.
+- N. Goldman et al., *Nature* 494 (2013) — the first practical-scale DNA archive.
+- R. Grass et al., *Angew. Chem. Int. Ed.* 54 (2015) — chemical preservation.
+- S. M. H. T. Yazdi et al., *Sci. Rep.* 5 (2015) — rewritable random-access DNA.
+- Y. Erlich, D. Zielinski, *Science* 355 (2017) — DNA Fountain; `vivi/parity.h`
+  is the systematic Reed-Solomon baseline that such schemes build on.
+- L. Organick et al., *Nat. Biotechnol.* 36 (2018) — random access with PCR
+  primers; the access model in `vivi/pool.h`.
+
+Vivian is a simulation and teaching testbed with two byte-exact
+implementations; it does not claim to compete with these systems.
+
+## Threats to validity
+
+- The channel is synthetic; rates are chosen for curve shape, not measured
+  on hardware.
+- A failed tag is treated as an erasure; real pipelines carry soft
+  information and non-zero false-accept rates.
+- Parity decoding assumes correct shard classification and equal-length
+  shards (zero padded).
+- Absolute success depends on payload size, `gene_raw` and `h`; only
+  like-for-like rows are comparable.
+
+## Reproducible protocol
+
+- All randomness is integer SplitMix64 seeded per read; the same flags
+  produce the same CSV bytes on any platform.
+- `make research` emits `research_whole.csv`, `research_access.csv` and
+  `research_library.csv`; every row carries the full parameter set.
+- Report numbers together with the commit hash and the CSV rows.
+
+## Toward VIV14
+
+Planned format revision, following the evolution ladder:
+- on-strand primer sites, so random access becomes physical rather than
+  bookkept in the primer database;
+- parity genes as first-class chromosome members (outer code in the format);
+- version-prefix dispatch for magics longer than four bytes
+  (`VIV14` → `VIV14N` → `VIV14NB4NSH33`), with `VIV1` staying readable.
+
 ## Roadmap
 
 1. **Channel + sim + CSV** — done (this document).
@@ -169,9 +238,9 @@ each has only ~67% chance at this error rate.
    primer sites move to the `VIV14` revision.
 3. **Outer code** — done (`vivi/parity.h`: systematic Reed-Solomon over
    GF(256); `vivi_sim --library --replicas K --parity M`).
-4. **Fuzzing + benchmarks** — libFuzzer harnesses for every parser and a
-   `make research` sweep runner.
-5. **Formalization** — channel assumptions, related work (DNA Fountain,
-   Goldman et al.), reproducible protocol.
+4. **Fuzzing + benchmarks** — done (`test/fuzz/`, `make fuzz-smoke`,
+   `make research`).
+5. **Formalization** — done (assumptions, related work, threats, protocol
+   and the VIV14 plan in this document).
 
 All results are simulation only; no wet-lab claims are made.

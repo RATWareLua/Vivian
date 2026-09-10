@@ -10,6 +10,7 @@ framework/C/*.pdb
 framework/C/*.ilk
 framework/C/*.plist
 framework/C/clang_rt.asan_dynamic-*.dll
+framework/C/research_*.csv
 
 # Demo save file
 *.viv1
