@@ -399,3 +399,37 @@ cell_report organism_maintain(vivi_organism **organisms, size_t count,
 
 One pass over the population: checkpoint, revive from the stem (also when
 `generation >= max_gen`), kill what cannot be rescued.
+
+---
+
+## `channel.h` — synthesis/sequencing channel (research layer)
+
+```c
+typedef struct {
+    double p_sub;   /* substitution probability per original base, [0, 1] */
+    double p_ins;   /* insertion probability after each original base, [0, 1] */
+    double p_del;   /* deletion probability per original base, [0, 1] */
+    double p_drop;  /* probability that the whole read is lost, [0, 1] */
+    uint32_t seed;  /* rng seed; 0 behaves as 1 */
+} vivi_channel_opts;
+
+typedef struct {
+    vivi_bytes strand;  /* damaged packed strand ({ NULL, 0 } when dropped) */
+    size_t bases;       /* exact base count of the read */
+    int dropped;        /* 1 = the read was lost */
+} vivi_read;
+
+[[nodiscard]] bool vivi_channel_read(vivi_read *out, const uint8_t *strand, size_t slen,
+    const vivi_channel_opts *opts, const char **err);
+```
+
+- `opts` may be `NULL` (identity channel); probabilities outside [0, 1] are
+  rejected.
+- Draw order per original base is pinned (delete?, substitute?, insert?), so
+  a read is a deterministic function of `(strand, rates, seed)`.
+- A dropped read comes back as `dropped = 1` with `strand = { NULL, 0 }`.
+- The damaged sequence is repacked into whole bytes; `bases` is the exact
+  base count (0..3 filler bases are appended as `A`).
+
+See [research.md](research.md) for the `vivi_sim` experiment tool, the CSV
+schema and measured success curves.

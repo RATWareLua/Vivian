@@ -6,6 +6,8 @@ then follow the two references:
 1. [`api.md`](api.md) — every public type and function, module by module.
 2. [`contracts.md`](contracts.md) — memory ownership, error handling, limits,
    determinism, threading, and the lifecycle rules you must respect.
+3. [`research.md`](research.md) — the error channel, `vivi_sim` experiments,
+   format evolution plan and the research roadmap.
 
 The Lua implementation in `framework/luau/` is the normative byte-format
 reference: for the same inputs the C port produces exactly the same bytes.

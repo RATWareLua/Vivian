@@ -2,11 +2,11 @@
 CC      := clang
 AR      := llvm-ar
 CFLAGS  := -std=c23 -O2 -Wall -Wextra -Iinclude
-LIBSRC  := src/vivi.c src/dna.c src/genome.c src/chromosome.c src/cell.c src/organism.c
+LIBSRC  := src/vivi.c src/dna.c src/genome.c src/chromosome.c src/channel.c src/cell.c src/organism.c
 HDRS    := $(wildcard include/vivi/*.h)
 LIBOBJ  := $(LIBSRC:.c=.o)
 
-.PHONY: all lib test demo density asan clean
+.PHONY: all lib test demo density sim asan clean
 
 all: vivi.a vivi_test.exe vivi_demo.exe
 
@@ -37,9 +37,18 @@ demo: vivi_demo.exe
 density: density.exe
 	./density.exe
 
+sim.exe: test/sim.c $(LIBSRC) $(HDRS)
+	$(CC) $(CFLAGS) -o $@ test/sim.c $(LIBSRC)
+
+sim: sim.exe
+	./sim.exe --size 256 --trials 1000 --p-sub 0.0005 --header
+	./sim.exe --size 256 --trials 1000 --p-sub 0.001
+	./sim.exe --size 256 --trials 1000 --p-sub 0.002
+	./sim.exe --size 256 --trials 1000 --p-sub 0.004 --p-drop 0.01
+
 asan: 
 	$(CC) -std=c23 -O1 -g -fsanitize=address,undefined -DVIVI_TEST_TRACK -Iinclude -o vivi_test_asan test/test.c $(LIBSRC)
 	./vivi_test_asan
 
 clean:
-	rm -f vivi.a vivi_test.exe vivi_demo.exe density.exe vivi_test_asan src/*.o
+	rm -f vivi.a vivi_test.exe vivi_demo.exe density.exe sim.exe vivi_test_asan src/*.o

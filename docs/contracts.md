@@ -64,6 +64,7 @@ return.
 | chromosomes per organism | 1 .. 255 |
 | `generation` | 0 .. 65535 (centromere field) |
 | `max_gen` | 0 = 60; replication at `generation + 1 > max_gen` fails "senescent" |
+| `vivi_channel_opts` probabilities | 0 .. 1 |
 
 ## Determinism and byte format
 
@@ -76,7 +77,10 @@ return.
   detected with probability ~1 - 2^-32. Wobble-base corruption is invisible
   by design. The key is public: integrity, not authenticity.
 - Damage/mutation never insert or delete: strand lengths are stable, so
-  homologous loci stay aligned.
+  homologous loci stay aligned. (The research channel *does* model
+  insertions and deletions, outside the format itself; see research.md.)
+- Channel reads are deterministic per seed, with a pinned draw order, so a
+  simulation is reproducible from `(strand, rates, seed)` alone.
 - The C port is byte-compatible with the Lua reference (`framework/luau/`)
   for codec output, gene/chromosome encoding, damage patterns, cell
   homologs and the `VIV1` container.

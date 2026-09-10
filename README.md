@@ -55,7 +55,7 @@ physically survived.
   public.
 - Not a compressor: expect a small, deterministic size overhead (the
   VIV1 container adds ~3%).
-- Not production archival software — it is a rigorous toy: 387-check test
+- Not production archival software — it is a rigorous toy: 405-check test
   suite, official Chaskey-12 vectors, ASan-clean, but experimental.
 
 ## Quick start
@@ -67,12 +67,14 @@ beyond the CRT's `memcpy/memset/memcmp`:
 cd framework\C
 build.bat lib        rem framework only -> vivi.lib
 build.bat            rem + test suite + interactive demo
-vivi_test.exe        rem pass=387 fail=0
+vivi_test.exe        rem pass=405 fail=0
 build.bat density    rem packing-density report (bits/nt)
+build.bat sim        rem channel experiment sweep (CSV)
 build.bat asan       rem test suite under AddressSanitizer
 ```
 
-Or with `make`: `make lib`, `make test`, `make demo`, `make density`, `make asan`.
+Or with `make`: `make lib`, `make test`, `make demo`, `make density`,
+`make sim`, `make asan`.
 
 ### Hello, organism
 
@@ -207,13 +209,16 @@ Reading the numbers:
 `"VIV1"` magic, generation (2 bytes BE), chromosome count (1 byte), then
 per chromosome: id (1), gene_raw (2 BE), mode\|h (1), units (1), flags (1),
 strand length (4 BE), strand bytes. Deterministic: same organism, same
-bytes. Byte-compatible with the Lua reference below.
+bytes. Byte-compatible with the Lua reference below. Future revisions are
+named `VIV14` → `VIV14N` → `VIV14NB4NSH33` ("Vivian Banshee"); see
+[docs/research.md](docs/research.md).
 
 ## Documentation
 
 - [`docs/README.md`](docs/README.md) — orientation, build/run, a tracked usage example
 - [`docs/api.md`](docs/api.md) — module-by-module API reference
 - [`docs/contracts.md`](docs/contracts.md) — memory ownership, errors, limits, determinism, threading
+- [`docs/research.md`](docs/research.md) — error channel, `vivi_sim` experiments, format evolution plan
 
 ## Layout
 
@@ -228,12 +233,12 @@ bytes. Byte-compatible with the Lua reference below.
         ├── include/vivi/  public API: vivi.h, dna.h, genome.h, chromosome.h,
         │                  cell.h, organism.h
         ├── src/           the framework itself (no I/O, no CRT assumptions)
-        ├── test/          387-check self-test + density report
+        ├── test/          405-check self-test, density and sim reports
         │                  (own entrypoints, hosted)
         ├── demo/          interactive terminal tamagotchi (own entrypoint, hosted)
         ├── vivi.lib       built with build.bat lib / make lib
-        ├── build.bat      all | lib | test | density | asan | clean
-        └── Makefile       all | lib | test | demo | density | asan | clean
+        ├── build.bat      all | lib | test | density | sim | asan | clean
+        └── Makefile       all | lib | test | demo | density | sim | asan | clean
 ```
 
 The two implementations are independent: `luau/` is readable and
@@ -245,7 +250,7 @@ Both write identical bytes.
 
 ## Verification
 
-- **387/387** checks: 64 official Chaskey-12 vectors; codec round-trips
+- **405/405** checks: 64 official Chaskey-12 vectors; codec round-trips
   for every parameter combination; constraint edge cases; gene/chromosome
   structure and corruption detection; diploid repair, checkpoints,
   senescence, stem rejuvenation; mutations, crossing-over mosaics; VIV1

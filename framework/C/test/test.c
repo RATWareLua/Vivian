@@ -12,6 +12,7 @@
 #include <crtdbg.h>
 #endif
 #include "vivi/organism.h"
+#include "vivi/channel.h"
 
 static int g_pass = 0, g_fail = 0;
 
@@ -347,6 +348,69 @@ static void test_chromosome(void)
 	}
 }
 
+/* ---------- channel ---------- */
+static void test_channel(void)
+{
+	uint8_t src[8];
+	rands(src, sizeof(src));
+	const char *err;
+	vivi_read rd;
+	vivi_channel_opts z = { 0, 0, 0, 0, 7 };
+	CHECK(vivi_channel_read(&rd, src, sizeof(src), &z, &err), "channel identity");
+	CHECK(!rd.dropped && rd.bases == 32 && rd.strand.len == 8
+		&& memcmp(rd.strand.data, src, 8) == 0, "channel identity bytes");
+	vivi_bytes_free(&rd.strand);
+
+	vivi_channel_opts drop = { 0, 0, 0, 1.0, 7 };
+	CHECK(vivi_channel_read(&rd, src, sizeof(src), &drop, &err), "channel drop");
+	CHECK(rd.dropped && rd.strand.data == nullptr && rd.bases == 0, "channel dropped read");
+
+	vivi_channel_opts sub = { 1.0, 0, 0, 0, 123 };
+	CHECK(vivi_channel_read(&rd, src, sizeof(src), &sub, &err), "channel substitution");
+	CHECK(!rd.dropped && rd.bases == 32 && rd.strand.len == 8, "substitution keeps shape");
+	int changed = 0;
+	for (int i = 0; i < 32; i++) {
+		int a = (src[i / 4] >> (2 * (3 - i % 4))) & 3;
+		int b = (rd.strand.data[i / 4] >> (2 * (3 - i % 4))) & 3;
+		if (a != b) changed++;
+	}
+	CHECK(changed == 32, "every base substituted");
+	vivi_read rd2;
+	CHECK(vivi_channel_read(&rd2, src, sizeof(src), &sub, &err), "channel substitution 2");
+	CHECK(rd2.strand.len == rd.strand.len
+		&& memcmp(rd2.strand.data, rd.strand.data, rd.strand.len) == 0,
+		"channel deterministic per seed");
+	vivi_bytes_free(&rd2.strand);
+	vivi_bytes_free(&rd.strand);
+
+	vivi_channel_opts ins = { 0, 1.0, 0, 0, 4 };
+	CHECK(vivi_channel_read(&rd, src, sizeof(src), &ins, &err), "channel insertion");
+	CHECK(!rd.dropped && rd.bases == 64 && rd.strand.len == 16, "insertion doubles bases");
+	vivi_bytes_free(&rd.strand);
+
+	vivi_channel_opts del = { 0, 0, 1.0, 0, 4 };
+	CHECK(vivi_channel_read(&rd, src, sizeof(src), &del, &err), "channel deletion");
+	CHECK(!rd.dropped && rd.bases == 0 && rd.strand.data == nullptr, "deletion empties read");
+
+	vivi_channel_opts bad = { 1.5, 0, 0, 0, 1 };
+	CHECK(!vivi_channel_read(&rd, src, sizeof(src), &bad, &err), "channel rejects bad rate");
+	(void)err;
+
+	/* an identity channel is a lossless read of a real strand */
+	uint8_t pl[64];
+	rands(pl, sizeof(pl));
+	vivi_bytes enc = { 0 }, dec = { 0 };
+	dna_opts dopts = { 3, 0.05 };
+	CHECK(dna_encode(&enc, pl, sizeof(pl), &dopts, &err), "channel encode");
+	CHECK(vivi_channel_read(&rd, enc.data, enc.len, &z, &err), "channel identity on strand");
+	CHECK(dna_decode(&dec, rd.strand.data, rd.strand.len, &err), "channel identity decode");
+	CHECK(dec.len == sizeof(pl) && memcmp(dec.data, pl, sizeof(pl)) == 0,
+		"channel identity roundtrip");
+	vivi_bytes_free(&rd.strand);
+	vivi_bytes_free(&enc);
+	vivi_bytes_free(&dec);
+}
+
 /* ---------- cells ---------- */
 static void test_cells(void)
 {
@@ -600,6 +664,7 @@ int main(void)
 	test_dna();
 	test_genome();
 	test_chromosome();
+	test_channel();
 	test_cells();
 	test_organisms();
 	dna_free_caches();
