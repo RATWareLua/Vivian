@@ -27,7 +27,7 @@ typedef struct vivi_cell {
 } vivi_cell;
 
 /* low-level machinery (also used by organism.c) */
-[[nodiscard]] [[nodiscard]] bool cell_damage_strand(vivi_bytes *out, const uint8_t *strand, size_t slen, int count,
+[[nodiscard]] bool cell_damage_strand(vivi_bytes *out, const uint8_t *strand, size_t slen, int count,
 	uint32_t seed, const char **err);
 [[nodiscard]] bool cell_repair_homolog(vivi_bytes *out, const uint8_t *dst, size_t dlen,
 	const uint8_t *src, size_t slen, cell_report *rep, const char **err);

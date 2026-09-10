@@ -2,6 +2,9 @@
 #include "vivi/genome.h"
 #include <string.h>
 
+/* absorbs messages when a caller passes err == nullptr */
+static const char *genome_err_sink;
+
 static constexpr uint8_t genome_PROM[3] = { 0x1B, 0x1B, 0x1B };   /* ACGT x3 */
 static constexpr uint8_t genome_TERM[3] = { 0xE4, 0xE4, 0xE4 };   /* TGAC x3 */
 
@@ -94,6 +97,7 @@ uint32_t genome_chaskey32(const uint8_t *s, size_t len)
 
 bool genome_pack_codons(vivi_bytes *out, const int *values, size_t nvalues, const char **err)
 {
+	if (!err) err = &genome_err_sink;
 	*out = (vivi_bytes){ 0 };
 	if (nvalues % 4 != 0) { *err = "codon count must be a multiple of 4"; return false; }
 	vivi_buf o = { 0 };
@@ -133,8 +137,8 @@ bool genome_pack_codons(vivi_bytes *out, const int *values, size_t nvalues, cons
 bool genome_unpack_codons(int *values, size_t nvalues, const uint8_t *packed, size_t plen,
 	const char **err)
 {
+	if (!err) err = &genome_err_sink;
 	if (nvalues * 6 > plen * 8) { *err = "values do not fit the packed block"; return false; }
-	(void)err;
 	for (size_t kk = 0; kk < nvalues; kk++) {
 		size_t bitpos = kk * 6;
 		size_t off1 = bitpos % 8;
@@ -159,6 +163,7 @@ bool genome_values_from_bytes(int *values, size_t nvalues, const uint8_t *s, siz
 bool genome_bytes_from_values(vivi_bytes *out, const int *values, size_t nvalues, size_t nbytes,
 	const char **err)
 {
+	if (!err) err = &genome_err_sink;
 	*out = (vivi_bytes){ 0 };
 	if (nvalues < nbytes * 2) { *err = "not enough values"; return false; }
 	out->data = vivi_alloc(nbytes ? nbytes : 1);
@@ -174,6 +179,7 @@ bool genome_bytes_from_values(vivi_bytes *out, const int *values, size_t nvalues
 bool genome_gene_encode(vivi_bytes *out, int id, int usertype, int codon_mode, int h,
 	const uint8_t *data, size_t len, const char **err)
 {
+	if (!err) err = &genome_err_sink;
 	*out = (vivi_bytes){ 0 };
 	if (id < 0 || id > 255) { *err = "invalid id (byte 0..255)"; return false; }
 	if (usertype < 0 || usertype > 255) { *err = "invalid type (byte 0..255)"; return false; }
@@ -255,7 +261,7 @@ static int gene_parse_at(genome_gene *g, const uint8_t *strand, size_t slen, siz
 	memset(g, 0, sizeof(*g));
 	if (p + 21 > slen) return 0;
 	int hv[12];
-	(void)(void)genome_unpack_codons(hv, 12, strand + p + 3, slen - p - 3, nullptr);
+	if (!genome_unpack_codons(hv, 12, strand + p + 3, slen - p - 3, nullptr)) return 0;
 	int id = hv[0] * 16 + hv[1];
 	int typ = hv[2] * 16 + hv[3];
 	int rawlen = hv[4] * 4096 + hv[5] * 256 + hv[6] * 16 + hv[7];
@@ -267,7 +273,8 @@ static int gene_parse_at(genome_gene *g, const uint8_t *strand, size_t slen, siz
 	size_t payload_off = p + 12;
 	size_t payload_len = (size_t)packedlen;
 	int tv[8];
-	(void)genome_unpack_codons(tv, 8, strand + payload_off + payload_len, slen, nullptr);
+	if (!genome_unpack_codons(tv, 8, strand + payload_off + payload_len, slen, nullptr))
+		return 0;
 	uint32_t expected = ((uint32_t)(tv[0] * 16 + tv[1]) << 24)
 		| ((uint32_t)(tv[2] * 16 + tv[3]) << 16)
 		| ((uint32_t)(tv[4] * 16 + tv[5]) << 8)
@@ -350,8 +357,8 @@ static size_t find_prom(const uint8_t *strand, size_t slen, size_t from)
 bool genome_gene_scan(genome_scan_result *out, const uint8_t *strand, size_t slen,
 	const char **err)
 {
+	if (!err) err = &genome_err_sink;
 	memset(out, 0, sizeof(*out));
-	(void)err;
 	size_t cap = 0;
 	size_t pos = 0;
 	while (pos + 3 <= slen) {
@@ -384,6 +391,7 @@ bool genome_gene_scan(genome_scan_result *out, const uint8_t *strand, size_t sle
 bool genome_gene_read(genome_gene *out, const uint8_t *strand, size_t slen, int id,
 	const char **err)
 {
+	if (!err) err = &genome_err_sink;
 	memset(out, 0, sizeof(*out));
 	genome_scan_result res;
 	if (!genome_gene_scan(&res, strand, slen, err)) return false;

@@ -11,6 +11,8 @@
 #include "vivi.h"
 #include "genome.h"
 
+#define CENBYTES 18   /* centromere: marker (3) + 20 codons (15) */
+
 typedef struct {
 	int gene_raw;   /* 0 = default 1024; else >= 16 */
 	int codon;      /* payload mode: 0 = dense, 1 = codon */

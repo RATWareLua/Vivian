@@ -196,6 +196,14 @@ static void test_dna(void)
 	vivi_bytes_free(&c1);
 	vivi_bytes_free(&c2);
 	vivi_bytes_free(&c3);
+
+	/* trailing partial groups are left-aligned (Lua reference bytes) */
+	(void)dna_from_ascii(&c1, "ACG", 3, &ERR);
+	CHECK(c1.len == 1 && c1.data[0] == 0x18, "from_ascii partial group ACG");
+	vivi_bytes_free(&c1);
+	(void)dna_from_ascii(&c1, "AC", 2, &ERR);
+	CHECK(c1.len == 1 && c1.data[0] == 0x10, "from_ascii partial group AC");
+	vivi_bytes_free(&c1);
 }
 
 /* ---------- genes ---------- */
@@ -340,6 +348,17 @@ static void test_cells(void)
 	CHECK(data.len == 3000 && memcmp(data.data, cdata, 3000) == 0, "repaired data intact");
 	vivi_bytes_free(&data);
 
+	/* damage transliteration pin (must match the Lua reference bytes) */
+	{
+		const uint8_t raw[4] = { 0x00, 0x11, 0x22, 0x33 };
+		const uint8_t want[4] = { 0x20, 0x01, 0x22, 0x33 };
+		vivi_bytes dd = { 0 };
+		(void)cell_damage_strand(&dd, raw, 4, 2, 1, &err);
+		CHECK(dd.len == 4 && memcmp(dd.data, want, 4) == 0, "damage matches Lua reference");
+		vivi_bytes_free(&dd);
+	}
+
+
 	/* same-locus damage in both -> dead -> stem rescue */
 	vivi_cell *stem;
 	(void)cell_stem(&stem, 1, cdata, 3000, &co, &err);
@@ -403,6 +422,12 @@ static void test_organisms(void)
 	const size_t lens[2] = { 300, 200 };
 	vivi_organism *org;
 	CHECK(organism_new(&org, ids, opts, datas, lens, 2, 60, &ERR), "organism new");
+	{
+		int dup_ids[2] = { 0, 0 };
+		vivi_organism *dup = nullptr;
+		CHECK(!organism_new(&dup, dup_ids, opts, datas, lens, 2, 60, &ERR),
+			"duplicate chr_id rejected");
+	}
 	vivi_bytes *rd = nullptr;
 	cell_report rep;
 	CHECK(organism_read(&rd, org, &rep, &ERR), "organism read");
@@ -445,6 +470,26 @@ static void test_organisms(void)
 	CHECK(rd[1].len == 200 && memcmp(rd[1].data, d1, 200) == 0, "renewed data intact");
 	CHECK(rep.renewed, "renewal reported");
 	vivi_bytes_free_n(rd, 2);
+
+	/* renewal from a stem with a different chromosome count must resize */
+	{
+		int one[1] = { 0 };
+		chr_opts oneopts[1] = { o1 };
+		const uint8_t *onedata[1] = { d0 };
+		const size_t onelen[1] = { 300 };
+		vivi_organism *small = nullptr;
+		(void)organism_new(&small, one, oneopts, onedata, onelen, 1, 60, &ERR);
+		organism_attach_stem(small, niche);
+		organism_kill(small);
+		vivi_bytes *rr = nullptr;
+		int ok = organism_read(&rr, small, &rep, &ERR);
+		CHECK(ok, "renew from differently sized stem");
+		CHECK(ok && small->nchr == 2 && rr[1].len == 200
+			&& memcmp(rr[1].data, d1, 200) == 0, "renewed karyotype matches stem");
+		if (rr) vivi_bytes_free_n(rr, small->nchr);
+		organism_free(small);
+	}
+
 
 	/* mutate */
 	org_mut_result mu = { 0 };
@@ -497,13 +542,19 @@ static void test_organisms(void)
 	/* serialize roundtrip */
 	vivi_bytes ser;
 	CHECK(organism_serialize(&ser, child, &ERR), "serialize");
-	vivi_organism *loaded;
+	CHECK(ser.len >= 4 && memcmp(ser.data, "VIV1", 4) == 0, "VIV1 container magic");
+	vivi_organism *loaded = nullptr;
+	CHECK(!organism_deserialize(&loaded, ser.data, ser.len - 1, &ERR),
+		"truncated container rejected");
 	CHECK(organism_deserialize(&loaded, ser.data, ser.len, &ERR), "deserialize");
 	CHECK(organism_read(&rd, loaded, &rep, &ERR), "deserialized reads");
 	CHECK(rd[0].len == 300 && rd[1].len == 200, "serialize roundtrip data");
 	vivi_bytes_free_n(rd, 2);
+	organism_free(loaded);
+	loaded = nullptr;
 	CHECK(!organism_deserialize(&loaded, (const uint8_t *)"garbage!", 8, &ERR),
 		"bad magic rejected");
+	if (loaded) organism_free(loaded);
 	vivi_bytes_free(&ser);
 	organism_free(child);
 	organism_free(pb);
@@ -525,6 +576,7 @@ int main(void)
 	test_chromosome();
 	test_cells();
 	test_organisms();
+	dna_free_caches();
 	printf("\npass=%d fail=%d\n", g_pass, g_fail);
 	return g_fail ? 1 : 0;
 }

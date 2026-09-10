@@ -1,0 +1,37 @@
+# ---------------------------------------------------------------------------
+# Build outputs (C framework)
+# ---------------------------------------------------------------------------
+framework/C/*.exe
+framework/C/*.lib
+framework/C/*.a
+framework/C/*.o
+framework/C/*.obj
+framework/C/*.pdb
+framework/C/*.ilk
+framework/C/*.plist
+framework/C/clang_rt.asan_dynamic-*.dll
+
+# Demo save file
+*.viv1
+
+# ---------------------------------------------------------------------------
+# Luau interpreter binary: not part of the repository.
+# Grab a build from https://github.com/luau-lang/luau/releases
+# ---------------------------------------------------------------------------
+/luau.exe
+
+# ---------------------------------------------------------------------------
+# Editors / OS noise
+# ---------------------------------------------------------------------------
+.vscode/
+.vs/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# ---------------------------------------------------------------------------
+# Logs and other local junk
+# ---------------------------------------------------------------------------
+*.log

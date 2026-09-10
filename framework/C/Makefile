@@ -6,7 +6,7 @@ LIBSRC  := src/vivi.c src/dna.c src/genome.c src/chromosome.c src/cell.c src/org
 HDRS    := $(wildcard include/vivi/*.h)
 LIBOBJ  := $(LIBSRC:.c=.o)
 
-.PHONY: all lib test demo density clean
+.PHONY: all lib test demo density asan clean
 
 all: vivi.a vivi_test.exe vivi_demo.exe
 
@@ -37,5 +37,9 @@ demo: vivi_demo.exe
 density: density.exe
 	./density.exe
 
+asan: 
+	$(CC) -std=c23 -O1 -g -fsanitize=address,undefined -Iinclude -o vivi_test_asan test/test.c $(LIBSRC)
+	./vivi_test_asan
+
 clean:
-	rm -f vivi.a vivi_test.exe vivi_demo.exe density.exe src/*.o
+	rm -f vivi.a vivi_test.exe vivi_demo.exe density.exe vivi_test_asan src/*.o

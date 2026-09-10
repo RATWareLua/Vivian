@@ -2,6 +2,9 @@
 #include "vivi/dna.h"
 #include <string.h>
 
+/* absorbs messages when a caller passes err == nullptr */
+static const char *dna_err_sink;
+
 constexpr uint32_t DNA_HDR_CONST = 0x1B87'3593u;
 
 static uint32_t dna_xs32(uint32_t x)
@@ -15,8 +18,8 @@ static uint32_t dna_xs32(uint32_t x)
 static uint32_t dna_seed_for(size_t len)
 {
 	uint32_t s = 0x9E37'79B9u ^ (uint32_t)len ^ 0x5BD1'E995u;
-	if (s == 0) s = 1; /* xorshift32 is stuck at zero */
-	return dna_xs32(dna_xs32(s));
+	if (s == 0) s = 1; /* xorshift32 is stuck at zero (len 0xC5E6902C) */
+	return dna_xs32(s);
 }
 
 static uint32_t dna_hdr_seed(void) { return dna_xs32(DNA_HDR_CONST); }
@@ -283,6 +286,8 @@ bool dna_decode(vivi_bytes *out, const uint8_t *strand, size_t slen,
 	int fc = (((pd1 - pd0 - 1) % 4) + 4) % 4;
 	if (fc > 2) { *err = "invalid strand prefix"; return false; }
 	int h = pd0 + 4 * fc + 1;
+	const uint32_t *ft = dna_fast_table(h);
+	if (!ft) { *err = "out of memory"; return false; }
 	dna_ks kh, kp;
 	dna_ks_init(&kh, dna_hdr_seed());
 	dna_ks_init(&kp, 0); /* real seed set when the header completes */
@@ -321,7 +326,7 @@ bool dna_decode(vivi_bytes *out, const uint8_t *strand, size_t slen,
 		int fast = 0;
 		if (run < h && nacc == 0 && coff == 0 && remaining >= 8
 			&& (before >= 32 || before + 8 <= 32)) {
-			uint32_t e = dna_fast_table(h)[((run - 1) * 4 + last) * 256 + cb];
+			uint32_t e = ft[((run - 1) * 4 + last) * 256 + cb];
 			if (e) {
 				/* whole byte decodes in 2-bit mode: one whitened byte */
 				DNA_FLUSH(cb);
@@ -442,7 +447,7 @@ size_t dna_max_homopolymer(const uint8_t *s, size_t n)
 		if (run > mr) mr = run;
 		if (d2 == prev) run++; else { run = 1; prev = d2; }
 		if (run > mr) mr = run;
-		if (d3 == prev) run++; else { run = 1; prev = d3; }
+		if (d3 == prev) run++; else run = 1;
 		if (run > mr) mr = run;
 		int sr = 1;
 		if (d1 == d0) {
@@ -476,8 +481,9 @@ size_t dna_max_homopolymer(const uint8_t *s, size_t n)
 
 bool dna_complement(vivi_bytes *out, const uint8_t *s, size_t n, const char **err)
 {
+	if (!err) err = &dna_err_sink;
 	*out = (vivi_bytes){ 0 };
-	(void)err;
+	if (!s && n) { *err = "expected string"; return false; }
 	out->data = vivi_alloc(n ? n : 1);
 	if (!out->data) { *err = "out of memory"; return false; }
 	for (size_t i = 0; i < n; i++) out->data[i] = (uint8_t)(s[i] ^ 0xFFu);
@@ -487,8 +493,9 @@ bool dna_complement(vivi_bytes *out, const uint8_t *s, size_t n, const char **er
 
 bool dna_reverse_complement(vivi_bytes *out, const uint8_t *s, size_t n, const char **err)
 {
+	if (!err) err = &dna_err_sink;
 	*out = (vivi_bytes){ 0 };
-	(void)err;
+	if (!s && n) { *err = "expected string"; return false; }
 	out->data = vivi_alloc(n ? n : 1);
 	if (!out->data) { *err = "out of memory"; return false; }
 	for (size_t i = 0; i < n; i++)
@@ -501,8 +508,9 @@ static const char DNA_CHARS[4] = { 'A', 'C', 'G', 'T' };
 
 bool dna_to_ascii(vivi_bytes *out, const uint8_t *s, size_t n, long nbases, const char **err)
 {
+	if (!err) err = &dna_err_sink;
 	*out = (vivi_bytes){ 0 };
-	(void)err;
+	if (!s && n) { *err = "expected string"; return false; }
 	size_t total;
 	if (nbases < 0) total = n * 4;
 	else {
@@ -523,6 +531,7 @@ bool dna_to_ascii(vivi_bytes *out, const uint8_t *s, size_t n, long nbases, cons
 
 bool dna_from_ascii(vivi_bytes *out, const char *s, size_t n, const char **err)
 {
+	if (!err) err = &dna_err_sink;
 	*out = (vivi_bytes){ 0 };
 	if (!s) { *err = "expected string"; return false; }
 	size_t cap = (n + 3) / 4;
@@ -554,8 +563,8 @@ bool dna_from_ascii(vivi_bytes *out, const char *s, size_t n, const char **err)
 		}
 	}
 	if (k > 0) {
-		static const long pw[4] = { 64, 16, 4, 1 };
-		t[tn++] = (uint8_t)(acc * pw[4 - k]);
+		/* trailing partial group is left-aligned, like the Lua reference */
+		t[tn++] = (uint8_t)(acc << (2 * (4 - k)));
 	}
 	out->data = t;
 	out->len = tn;
@@ -564,6 +573,7 @@ bool dna_from_ascii(vivi_bytes *out, const char *s, size_t n, const char **err)
 
 bool dna_validate(const uint8_t *s, size_t n, int h, double eps, const char **err)
 {
+	if (!err) err = &dna_err_sink;
 	if (!s || n < 1) { *err = "invalid strand"; return false; }
 	if (h < 1 || h > 12) { *err = "invalid h (integer 1..12)"; return false; }
 	if (!(eps >= 0.005 && eps < 0.5)) { *err = "invalid gc_eps ([0.005, 0.5))"; return false; }
@@ -572,6 +582,14 @@ bool dna_validate(const uint8_t *s, size_t n, int h, double eps, const char **er
 	double g = dna_gc_content(s, n);
 	if (g < 0.5 - eps || g > 0.5 + eps) { *err = "gc content outside band"; return false; }
 	return true;
+}
+
+void dna_free_caches(void)
+{
+	for (int h = 1; h <= 12; h++) {
+		vivi_dealloc(dna_ft_cache[h]);
+		dna_ft_cache[h] = nullptr;
+	}
 }
 
 

@@ -2,7 +2,10 @@
 #include "vivi/organism.h"
 #include <string.h>
 
-static const char ORG_MAGIC[4] = { 'G', 'S', 'Y', '1' };
+/* absorbs messages when a caller passes err == nullptr */
+static const char *organism_err_sink;
+
+static const char ORG_MAGIC[4] = { 'V', 'I', 'V', '1' };
 
 static void organism_free_arrays(vivi_organism *o)
 {
@@ -36,7 +39,7 @@ static int organism_alloc_from_genome(vivi_organism **out, const int *ids,
 	o->chr_ids = vivi_alloc(nchr * sizeof(int));
 	o->chr_opts = vivi_alloc(nchr * sizeof(chr_opts));
 	for (int h = 0; h < 2; h++) {
-		o->hom[h] = vivi_alloc(nchr * sizeof(uint8_t *));
+		o->hom[h] = vivi_zalloc(nchr, sizeof(uint8_t *));
 		o->hlen[h] = vivi_alloc(nchr * sizeof(size_t));
 	}
 	if (!o->chr_ids || !o->chr_opts || !o->hom[0] || !o->hom[1]
@@ -67,10 +70,11 @@ bool organism_new(vivi_organism **out, const int *ids, const chr_opts *opts,
 	const uint8_t *const *datas, const size_t *lens, size_t nchr,
 	int max_gen, const char **err)
 {
+	if (!err) err = &organism_err_sink;
 	*out = nullptr;
 	if (!ids || nchr == 0) { *err = "expected non-empty specs array"; return false; }
 	if (nchr > 255) { *err = "too many chromosomes (max 255)"; return false; }
-	uint8_t **strands = vivi_alloc(nchr * sizeof(uint8_t *));
+	uint8_t **strands = vivi_zalloc(nchr, sizeof(uint8_t *));
 	size_t *slens = vivi_alloc(nchr * sizeof(size_t));
 	if (!strands || !slens) {
 		vivi_dealloc(strands);
@@ -120,20 +124,28 @@ void organism_attach_stem(vivi_organism *o, const vivi_organism *stem)
 
 bool organism_renew(vivi_organism *o, const vivi_organism *stem, const char **err)
 {
+	if (!err) err = &organism_err_sink;
 	if (!stem || !stem->hom[0]) { *err = "no stem organism"; return false; }
 	size_t nchr = stem->nchr;
+	/* stage the whole replacement genome first: a failed allocation
+	 * leaves the organism exactly as it was */
 	uint8_t **g1 = vivi_zalloc(nchr, sizeof(uint8_t *));
 	uint8_t **g2 = vivi_zalloc(nchr, sizeof(uint8_t *));
 	size_t *l1 = vivi_zalloc(nchr, sizeof(size_t));
 	size_t *l2 = vivi_zalloc(nchr, sizeof(size_t));
-	if (!g1 || !g2 || !l1 || !l2) {
-		vivi_dealloc(g1); vivi_dealloc(g2); vivi_dealloc(l1); vivi_dealloc(l2);
+	int *ids = vivi_zalloc(nchr, sizeof(int));
+	chr_opts *op = vivi_alloc(nchr * sizeof(chr_opts));
+	if (!g1 || !g2 || !l1 || !l2 || !ids || !op) {
+		vivi_dealloc(g1); vivi_dealloc(g2);
+		vivi_dealloc(l1); vivi_dealloc(l2);
+		vivi_dealloc(ids); vivi_dealloc(op);
 		*err = "out of memory";
 		return false;
 	}
 	int fail = 0;
 	for (size_t i = 0; i < nchr && !fail; i++) {
-		l1[i] = l2[i] = stem->hlen[0][i];
+		l1[i] = stem->hlen[0][i];
+		l2[i] = stem->hlen[1][i];
 		g1[i] = vivi_alloc(l1[i] ? l1[i] : 1);
 		g2[i] = vivi_alloc(l2[i] ? l2[i] : 1);
 		if (!g1[i] || !g2[i]) fail = 1;
@@ -141,35 +153,27 @@ bool organism_renew(vivi_organism *o, const vivi_organism *stem, const char **er
 			memcpy(g1[i], stem->hom[0][i], l1[i]);
 			memcpy(g2[i], stem->hom[1][i], l2[i]);
 		}
+		ids[i] = stem->chr_ids[i];
+		op[i] = stem->chr_opts[i];
 	}
 	if (fail) {
 		for (size_t i = 0; i < nchr; i++) { vivi_dealloc(g1[i]); vivi_dealloc(g2[i]); }
-		vivi_dealloc(g1); vivi_dealloc(g2); vivi_dealloc(l1); vivi_dealloc(l2);
+		vivi_dealloc(g1); vivi_dealloc(g2);
+		vivi_dealloc(l1); vivi_dealloc(l2);
+		vivi_dealloc(ids); vivi_dealloc(op);
 		*err = "out of memory";
 		return false;
 	}
 	organism_free_arrays(o);
+	vivi_dealloc(o->chr_ids);
+	vivi_dealloc(o->chr_opts);
 	o->hom[0] = g1;
 	o->hom[1] = g2;
 	o->hlen[0] = l1;
 	o->hlen[1] = l2;
-	o->nchr = nchr;
-	int *ids = vivi_zalloc(nchr, sizeof(int));
-	chr_opts *op = vivi_alloc(nchr * sizeof(chr_opts));
-	if (!ids || !op) {
-		vivi_dealloc(ids);
-		vivi_dealloc(op);
-		*err = "out of memory";
-		return false;
-	}
-	for (size_t i = 0; i < nchr; i++) {
-		ids[i] = stem->chr_ids[i];
-		op[i] = stem->chr_opts[i];
-	}
-	vivi_dealloc(o->chr_ids);
-	vivi_dealloc(o->chr_opts);
 	o->chr_ids = ids;
 	o->chr_opts = op;
+	o->nchr = nchr;
 	o->generation = 0;
 	o->dead = 0;
 	return true;
@@ -239,94 +243,140 @@ static int organism_read_checked(vivi_bytes *out, vivi_organism *o, cell_report 
 	return all_ok;
 }
 
+/* allocates the karyotype AFTER any renewal, so it always matches o->nchr;
+ * returns 1 = read, 0 = dead, -1 = out of memory */
+static int organism_read_into(vivi_bytes **out, vivi_organism *o, cell_report *rep,
+	int *broken_chr, const char **err)
+{
+	vivi_bytes *tmp = vivi_zalloc(o->nchr ? o->nchr : 1, sizeof(vivi_bytes));
+	if (!tmp) { *err = "out of memory"; return -1; }
+	if (organism_read_checked(tmp, o, rep, broken_chr, err)) {
+		*out = tmp;
+		return 1;
+	}
+	org_karyotype_clear(tmp, o->nchr ? o->nchr : 1);
+	return 0;
+}
+
 bool organism_read(vivi_bytes **out, vivi_organism *o, cell_report *rep, const char **err)
 {
+	if (!err) err = &organism_err_sink;
 	memset(rep, 0, sizeof(*rep));
-	vivi_bytes *tmp = vivi_zalloc(o->nchr ? o->nchr : 1, sizeof(vivi_bytes));
-	if (!tmp) { *err = "out of memory"; return false; }
 	int broken;
 	cell_report r;
 	if (o->dead || !o->hom[0]) {
 		if (o->stem_source && organism_renew(o, o->stem_source, err)) {
-			if (organism_read_checked(tmp, o, &r, &broken, err)) {
-				*out = tmp;
-
-				rep->renewed = 1;
-				return true;
-			}
+			int st = organism_read_into(out, o, &r, &broken, err);
+			if (st == 1) { rep->renewed = 1; return true; }
+			if (st < 0) return false;
 		}
-		org_karyotype_clear(tmp, o->nchr ? o->nchr : 1);
 		*err = "organism dead";
 		return false;
 	}
-	if (organism_read_checked(tmp, o, &r, &broken, err)) {
-		*out = tmp;
-
-		*rep = r;
-		return true;
-	}
+	int st = organism_read_into(out, o, &r, &broken, err);
+	if (st == 1) { *rep = r; return true; }
+	if (st < 0) return false;
 	if (o->stem_source && organism_renew(o, o->stem_source, err)) {
-		if (organism_read_checked(tmp, o, &r, &broken, err)) {
-			*out = tmp;
-
-			rep->renewed = 1;
-			return true;
-		}
+		st = organism_read_into(out, o, &r, &broken, err);
+		if (st == 1) { rep->renewed = 1; return true; }
+		if (st < 0) return false;
 	}
-	org_karyotype_clear(tmp, o->nchr ? o->nchr : 1);
 	*err = "chromosome dead";
 	return false;
 }
 
+/* stage every rewritten strand before committing, so a failure leaves the
+ * organism untouched (generation counter stays in sync with the strands) */
 static int org_set_generation_all(vivi_organism *o, int generation, const char **err)
 {
-	for (size_t i = 0; i < o->nchr; i++) {
+	size_t n = o->nchr;
+	vivi_bytes *n0 = vivi_zalloc(n ? n : 1, sizeof(vivi_bytes));
+	vivi_bytes *n1 = vivi_zalloc(n ? n : 1, sizeof(vivi_bytes));
+	if (!n0 || !n1) {
+		vivi_dealloc(n0);
+		vivi_dealloc(n1);
+		*err = "out of memory";
+		return 0;
+	}
+	int ok = 1;
+	for (size_t i = 0; i < n && ok; i++) {
 		vivi_bytes s;
 		if (!chr_set_generation(&s, o->hom[0][i], o->hlen[0][i], generation, err)
 			&& !chr_set_generation(&s, o->hom[1][i], o->hlen[1][i], generation, err)) {
-			return 0;
+			ok = 0;
+			break;
 		}
-		vivi_dealloc(o->hom[0][i]);
-		vivi_dealloc(o->hom[1][i]);
-		o->hom[0][i] = vivi_alloc(s.len ? s.len : 1);
-		o->hom[1][i] = vivi_alloc(s.len ? s.len : 1);
-		if (!o->hom[0][i] || !o->hom[1][i]) {
+		size_t slen = s.len;
+		n0[i].data = vivi_alloc(slen ? slen : 1);
+		n1[i].data = n0[i].data ? vivi_alloc(slen ? slen : 1) : nullptr;
+		if (!n0[i].data || !n1[i].data) {
+			vivi_dealloc(n0[i].data);
+			n0[i].data = nullptr;
 			vivi_bytes_free(&s);
 			*err = "out of memory";
-			return 0;
+			ok = 0;
+			break;
 		}
-		memcpy(o->hom[0][i], s.data, s.len);
-		memcpy(o->hom[1][i], s.data, s.len);
-		o->hlen[0][i] = o->hlen[1][i] = s.len;
+		memcpy(n0[i].data, s.data, slen);
+		memcpy(n1[i].data, s.data, slen);
+		n0[i].len = n1[i].len = slen;
 		vivi_bytes_free(&s);
 	}
+	if (!ok) {
+		for (size_t i = 0; i < n; i++) {
+			vivi_bytes_free(&n0[i]);
+			vivi_bytes_free(&n1[i]);
+		}
+		vivi_dealloc(n0);
+		vivi_dealloc(n1);
+		return 0;
+	}
+	for (size_t i = 0; i < n; i++) {
+		vivi_dealloc(o->hom[0][i]);
+		vivi_dealloc(o->hom[1][i]);
+		o->hom[0][i] = n0[i].data;
+		o->hom[1][i] = n1[i].data;
+		o->hlen[0][i] = n0[i].len;
+		o->hlen[1][i] = n1[i].len;
+	}
+	vivi_dealloc(n0);
+	vivi_dealloc(n1);
 	return 1;
 }
 
 bool organism_replicate(vivi_organism *o, const char **err)
 {
+	if (!err) err = &organism_err_sink;
 	if (o->dead || !o->hom[0]) { *err = "organism dead"; return false; }
 	organism_checkpoint(o);
 	if (o->generation + 1 > o->max_gen) { *err = "senescent"; return false; }
 	o->generation++;
-	return org_set_generation_all(o, o->generation, err);
+	if (!org_set_generation_all(o, o->generation, err)) {
+		o->generation--;   /* the strands were not touched */
+		return false;
+	}
+	return true;
 }
 
 bool organism_mitosis(vivi_organism **out, vivi_organism *o, const char **err)
 {
+	if (!err) err = &organism_err_sink;
 	*out = nullptr;
 	if (o->dead || !o->hom[0]) { *err = "organism dead"; return false; }
 	organism_checkpoint(o);
 	if (o->generation + 1 > o->max_gen) { *err = "senescent"; return false; }
 	o->generation++;
-	if (!org_set_generation_all(o, o->generation, err)) return false;
+	if (!org_set_generation_all(o, o->generation, err)) {
+		o->generation--;
+		return false;
+	}
 	vivi_organism *d = vivi_zalloc(1, sizeof(vivi_organism));
 	if (!d) { *err = "out of memory"; return false; }
 	d->nchr = o->nchr;
 	d->chr_ids = vivi_alloc(o->nchr * sizeof(int));
 	d->chr_opts = vivi_alloc(o->nchr * sizeof(chr_opts));
 	for (int h = 0; h < 2; h++) {
-		d->hom[h] = vivi_alloc(o->nchr * sizeof(uint8_t *));
+		d->hom[h] = vivi_zalloc(o->nchr, sizeof(uint8_t *));
 		d->hlen[h] = vivi_alloc(o->nchr * sizeof(size_t));
 	}
 	if (!d->chr_ids || !d->chr_opts || !d->hom[0] || !d->hom[1]
@@ -358,6 +408,7 @@ bool organism_mitosis(vivi_organism **out, vivi_organism *o, const char **err)
 
 bool organism_damage(vivi_organism *o, int count, uint32_t seed, const char **err)
 {
+	if (!err) err = &organism_err_sink;
 	if (o->dead || !o->hom[0]) { *err = "organism dead"; return false; }
 	for (size_t i = 0; i < o->nchr; i++) {
 		vivi_bytes a, b;
@@ -382,6 +433,7 @@ bool organism_damage(vivi_organism *o, int count, uint32_t seed, const char **er
 bool organism_mutate(org_mut_result *out, vivi_organism *o, int count, uint32_t seed,
 	const char **err)
 {
+	if (!err) err = &organism_err_sink;
 	memset(out, 0, sizeof(*out));
 	if (o->dead || !o->hom[0]) { *err = "organism dead"; return false; }
 	vivi_rng rng;
@@ -446,6 +498,7 @@ bool organism_mutate(org_mut_result *out, vivi_organism *o, int count, uint32_t 
 bool organism_cross(vivi_organism **out, vivi_organism *pa, vivi_organism *pb,
 	uint32_t seed, const char **err)
 {
+	if (!err) err = &organism_err_sink;
 	*out = nullptr;
 	if (!pa || !pb || !pa->hom[0] || !pb->hom[0]) { *err = "expected organisms"; return false; }
 	if (pa->nchr != pb->nchr) { *err = "incompatible genomes"; return false; }
@@ -511,8 +564,10 @@ bool organism_cross(vivi_organism **out, vivi_organism *pa, vivi_organism *pb,
 				if (rec.cen_ok) {
 					for (size_t kk = 0; kk < rec.gene_count; kk++) {
 						const genome_gene *g = &rec.genes[kk];
-						vivi_bytes *slot = hh ? &gb[g->id] : &ga[g->id];
-						if (g->crc_ok && g->id < ngenesA && !slot->data) {
+						vivi_bytes *slot = hh
+							? (gb ? &gb[g->id] : nullptr)
+							: (ga ? &ga[g->id] : nullptr);
+						if (slot && g->crc_ok && g->id < ngenesA && !slot->data) {
 							slot->data = vivi_alloc(g->data_len ? g->data_len : 1);
 							if (slot->data) {
 								memcpy(slot->data, g->data, g->data_len);
@@ -620,6 +675,7 @@ bool organism_cross(vivi_organism **out, vivi_organism *pa, vivi_organism *pb,
 
 bool organism_serialize(vivi_bytes *out, vivi_organism *o, const char **err)
 {
+	if (!err) err = &organism_err_sink;
 	*out = (vivi_bytes){ 0 };
 	if (o->dead || !o->hom[0]) { *err = "organism dead"; return false; }
 	vivi_buf b = { 0 };
@@ -660,6 +716,7 @@ bool organism_serialize(vivi_bytes *out, vivi_organism *o, const char **err)
 
 bool organism_deserialize(vivi_organism **out, const uint8_t *s, size_t len, const char **err)
 {
+	if (!err) err = &organism_err_sink;
 	*out = nullptr;
 	if (!s || len < 8) { *err = "bad format"; return false; }
 	if (memcmp(s, ORG_MAGIC, 4) != 0) { *err = "bad magic"; return false; }
@@ -669,7 +726,7 @@ bool organism_deserialize(vivi_organism **out, const uint8_t *s, size_t len, con
 	size_t pos = 7;
 	int *ids = vivi_alloc((size_t)nchr * sizeof(int));
 	chr_opts *opts_t = vivi_alloc((size_t)nchr * sizeof(chr_opts));
-	uint8_t **g = vivi_alloc((size_t)nchr * sizeof(uint8_t *));
+	uint8_t **g = vivi_zalloc((size_t)nchr, sizeof(uint8_t *));
 	size_t *lens = vivi_alloc((size_t)nchr * sizeof(size_t));
 	if (!ids || !opts_t || !g || !lens) {
 		vivi_dealloc(ids); vivi_dealloc(opts_t); vivi_dealloc(g); vivi_dealloc(lens);
@@ -742,14 +799,14 @@ cell_report organism_maintain(vivi_organism **organisms, size_t count,
 				report.dead++;
 			}
 		} else {
-			vivi_bytes *data = vivi_zalloc(o->nchr ? o->nchr : 1, sizeof(vivi_bytes));
-			if (!data) continue;
+			vivi_bytes *data = nullptr;
 			cell_report rep;
 			const char *err;
 			int ok = organism_read(&data, o, &rep, &err);
 			report.repaired += rep.repaired + rep.structural;
 			if (ok) {
 				for (size_t k = 0; k < o->nchr; k++) vivi_bytes_free(&data[k]);
+				vivi_dealloc(data);
 				if (o->generation >= o->max_gen && stem) {
 					(void)organism_renew(o, stem, &err);
 					report.renewed++;
@@ -760,7 +817,6 @@ cell_report organism_maintain(vivi_organism **organisms, size_t count,
 				organism_kill(o);
 				report.dead++;
 			}
-			vivi_dealloc(data);
 		}
 	}
 	return report;

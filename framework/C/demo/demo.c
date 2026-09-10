@@ -300,6 +300,7 @@ int main(void)
 
     organism_free(pet);
     organism_free(stem_niche);
+    dna_free_caches();
     printf("\nSimulator terminated. All biological structures safely deallocated.\n");
     return 0;
 }

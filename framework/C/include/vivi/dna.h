@@ -44,5 +44,9 @@ size_t dna_max_homopolymer(const uint8_t *s, size_t n);
 
 [[nodiscard]] bool dna_validate(const uint8_t *s, size_t n, int h, double eps, const char **err);
 
+/* release the lazily built per-h fast tables (optional housekeeping;
+ * they are pure caches and are rebuilt on demand) */
+void dna_free_caches(void);
+
 #endif /* DNA_H */
 

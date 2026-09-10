@@ -2,11 +2,16 @@
 #include "vivi/cell.h"
 #include <string.h>
 
+/* absorbs messages when a caller passes err == nullptr */
+static const char *cell_err_sink;
+
 bool cell_damage_strand(vivi_bytes *out, const uint8_t *strand, size_t slen, int count,
 	uint32_t seed, const char **err)
 {
+	if (!err) err = &cell_err_sink;
 	*out = (vivi_bytes){ 0 };
 	if (!strand) { *err = "expected string"; return false; }
+	if (slen > ((size_t)-1) / 4) { *err = "strand too long"; return false; }
 	size_t n = slen * 4;
 	if (n < 1) {
 		out->data = vivi_alloc(1);
@@ -32,7 +37,9 @@ bool cell_damage_strand(vivi_bytes *out, const uint8_t *strand, size_t slen, int
 		size_t bytei = idx / 4;
 		int sh = (int)(2 * (3 - idx % 4));
 		int d = (int)((strand[bytei] >> sh) & 3u);
-		edits[bytei * 4 + (3 - idx % 4)] = (uint8_t)((d + 1 + (int)(vivi_rng_next(&rng) % 3)) % 4);
+		/* stored as digit+1; 0 means "no edit" (any new digit is valid) */
+		edits[bytei * 4 + (idx % 4)] =
+			(uint8_t)(((d + 1 + (int)(vivi_rng_next(&rng) % 3)) % 4) + 1);
 	}
 	uint8_t *res = vivi_alloc(slen);
 	if (!res) {
@@ -59,8 +66,10 @@ bool cell_damage_strand(vivi_bytes *out, const uint8_t *strand, size_t slen, int
 bool cell_repair_homolog(vivi_bytes *out, const uint8_t *dst, size_t dlen,
 	const uint8_t *src, size_t slen, cell_report *rep, const char **err)
 {
+	if (!err) err = &cell_err_sink;
 	memset(out, 0, sizeof(*out));
 	memset(rep, 0, sizeof(*rep));
+	if (dlen != slen) { *err = "homolog length mismatch"; return false; }
 	chr_record recS;
 	if (!chr_parse(&recS, src, slen, -1, err)) return false;
 	if (!recS.cen_ok) {
@@ -87,7 +96,7 @@ bool cell_repair_homolog(vivi_bytes *out, const uint8_t *dst, size_t dlen,
 	if (!recD.cen_ok) {
 		/* centromere destroyed in dst: the head region lives at fixed
 		 * positions -- splice it wholesale from the healthy homolog */
-		size_t head = tb + 18;
+		size_t head = tb + CENBYTES;
 		uint8_t *nc = vivi_alloc(clen);
 		if (!nc) {
 			vivi_dealloc(cur);
@@ -153,6 +162,10 @@ bool cell_repair_homolog(vivi_bytes *out, const uint8_t *dst, size_t dlen,
 		}
 		if (need && g->crc_ok) {
 			/* the true locus always equals the template's offset */
+			if (g->offset > dlen || g->size > dlen - g->offset) {
+				rep->anomaly++;
+				continue;
+			}
 			memcpy(cur + g->offset, src + g->offset, g->size);
 			rep->repaired++;
 		}
@@ -170,6 +183,7 @@ bool cell_checkpoint_pair(vivi_bytes *a_out, vivi_bytes *b_out,
 	const uint8_t *h1, size_t l1, const uint8_t *h2, size_t l2,
 	cell_report *rep, const char **err)
 {
+	if (!err) err = &cell_err_sink;
 	memset(rep, 0, sizeof(*rep));
 	vivi_bytes a2, b2, a3;
 	cell_report r1, r2, r3;
@@ -218,6 +232,7 @@ static bool cell_alloc_from_strand(vivi_cell **out, int chr_id, const uint8_t *s
 bool cell_new(vivi_cell **out, int chr_id, const uint8_t *data, size_t len,
 	const chr_opts *opts, const char **err)
 {
+	if (!err) err = &cell_err_sink;
 	*out = nullptr;
 	vivi_bytes strand;
 	if (!chr_encode(&strand, chr_id, data, len, opts, err)) return false;
@@ -245,6 +260,7 @@ void cell_attach_stem(vivi_cell *c, const vivi_cell *stem)
 
 bool cell_renew(vivi_cell *c, const vivi_cell *stem, const char **err)
 {
+	if (!err) err = &cell_err_sink;
 	if (!stem || !stem->hom[0]) { *err = "no stem cell"; return false; }
 	chr_record rec;
 	if (!chr_parse(&rec, stem->hom[0], stem->hlen[0], -1, err)) return false;
@@ -254,13 +270,23 @@ bool cell_renew(vivi_cell *c, const vivi_cell *stem, const char **err)
 		return false;
 	}
 	chr_record_free(&rec);
-	for (int h = 0; h < 2; h++) {
-		vivi_dealloc(c->hom[h]);
-		c->hom[h] = vivi_alloc(stem->hlen[h] ? stem->hlen[h] : 1);
-		if (!c->hom[h]) { *err = "out of memory"; return false; }
-		memcpy(c->hom[h], stem->hom[h], stem->hlen[h]);
-		c->hlen[h] = stem->hlen[h];
+	/* stage both homologs first: a failed allocation leaves c untouched */
+	uint8_t *n0 = vivi_alloc(stem->hlen[0] ? stem->hlen[0] : 1);
+	if (!n0) { *err = "out of memory"; return false; }
+	uint8_t *n1 = vivi_alloc(stem->hlen[1] ? stem->hlen[1] : 1);
+	if (!n1) {
+		vivi_dealloc(n0);
+		*err = "out of memory";
+		return false;
 	}
+	memcpy(n0, stem->hom[0], stem->hlen[0]);
+	memcpy(n1, stem->hom[1], stem->hlen[1]);
+	vivi_dealloc(c->hom[0]);
+	vivi_dealloc(c->hom[1]);
+	c->hom[0] = n0;
+	c->hlen[0] = stem->hlen[0];
+	c->hom[1] = n1;
+	c->hlen[1] = stem->hlen[1];
 	c->chr_id = stem->chr_id;
 	c->generation = 0;
 	c->dead = 0;
@@ -321,6 +347,7 @@ static int cell_read_checked(vivi_bytes *out, vivi_cell *c, cell_report *rep, co
 
 bool cell_read(vivi_bytes *out, vivi_cell *c, cell_report *rep, const char **err)
 {
+	if (!err) err = &cell_err_sink;
 	memset(out, 0, sizeof(*out));
 	memset(rep, 0, sizeof(*rep));
 	if (c->dead || !c->hom[0]) {
@@ -348,76 +375,107 @@ bool cell_read(vivi_bytes *out, vivi_cell *c, cell_report *rep, const char **err
 
 bool cell_replicate(vivi_cell *c, const char **err)
 {
+	if (!err) err = &cell_err_sink;
 	if (c->dead || !c->hom[0]) { *err = "cell is dead"; return false; }
 	cell_checkpoint(c);
 	if (c->generation + 1 > c->max_gen) { *err = "senescent"; return false; }
-	c->generation++;
 	vivi_bytes s;
-	if (!chr_set_generation(&s, c->hom[0], c->hlen[0], c->generation, err)
-		&& !chr_set_generation(&s, c->hom[1], c->hlen[1], c->generation, err)) {
+	if (!chr_set_generation(&s, c->hom[0], c->hlen[0], c->generation + 1, err)
+		&& !chr_set_generation(&s, c->hom[1], c->hlen[1], c->generation + 1, err)) {
 		return false;
 	}
-	vivi_dealloc(c->hom[0]);
-	vivi_dealloc(c->hom[1]);
-	c->hom[0] = vivi_alloc(s.len ? s.len : 1);
-	c->hom[1] = vivi_alloc(s.len ? s.len : 1);
-	if (!c->hom[0] || !c->hom[1]) {
+	size_t slen = s.len;
+	/* stage both copies first: a failed allocation leaves c at the old generation */
+	uint8_t *n0 = vivi_alloc(slen ? slen : 1);
+	uint8_t *n1 = n0 ? vivi_alloc(slen ? slen : 1) : nullptr;
+	if (!n0 || !n1) {
+		vivi_dealloc(n0);
+		vivi_dealloc(n1);
 		vivi_bytes_free(&s);
 		*err = "out of memory";
 		return false;
 	}
-	memcpy(c->hom[0], s.data, s.len);
-	memcpy(c->hom[1], s.data, s.len);
-	c->hlen[0] = c->hlen[1] = s.len;
+	memcpy(n0, s.data, slen);
+	memcpy(n1, s.data, slen);
 	vivi_bytes_free(&s);
+	vivi_dealloc(c->hom[0]);
+	vivi_dealloc(c->hom[1]);
+	c->hom[0] = n0;
+	c->hom[1] = n1;
+	c->hlen[0] = c->hlen[1] = slen;
+	c->generation++;
 	return true;
 }
 
 bool cell_mitosis(vivi_cell **out, vivi_cell *c, const char **err)
 {
+	if (!err) err = &cell_err_sink;
 	*out = nullptr;
 	if (c->dead || !c->hom[0]) { *err = "cell is dead"; return false; }
 	cell_checkpoint(c);
 	if (c->generation + 1 > c->max_gen) { *err = "senescent"; return false; }
-	c->generation++;
 	vivi_bytes s;
-	if (!chr_set_generation(&s, c->hom[0], c->hlen[0], c->generation, err)
-		&& !chr_set_generation(&s, c->hom[1], c->hlen[1], c->generation, err)) {
+	if (!chr_set_generation(&s, c->hom[0], c->hlen[0], c->generation + 1, err)
+		&& !chr_set_generation(&s, c->hom[1], c->hlen[1], c->generation + 1, err)) {
 		return false;
 	}
-	vivi_cell *d = vivi_zalloc(1, sizeof(vivi_cell));
-	if (!d) {
+	size_t slen = s.len;
+	/* stage mother and daughter copies before mutating anything */
+	uint8_t *m0 = vivi_alloc(slen ? slen : 1);
+	uint8_t *m1 = m0 ? vivi_alloc(slen ? slen : 1) : nullptr;
+	uint8_t *d0 = m1 ? vivi_alloc(slen ? slen : 1) : nullptr;
+	uint8_t *d1 = d0 ? vivi_alloc(slen ? slen : 1) : nullptr;
+	if (!m0 || !m1 || !d0 || !d1) {
+		vivi_dealloc(m0);
+		vivi_dealloc(m1);
+		vivi_dealloc(d0);
+		vivi_dealloc(d1);
 		vivi_bytes_free(&s);
 		*err = "out of memory";
 		return false;
 	}
-	for (int h = 0; h < 2; h++) {
-		d->hom[h] = vivi_alloc(s.len ? s.len : 1);
-		if (!d->hom[h]) {
-			vivi_bytes_free(&s);
-			cell_free(d);
-			*err = "out of memory";
-			return false;
-		}
-		memcpy(d->hom[h], s.data, s.len);
-		d->hlen[h] = s.len;
-	}
+	memcpy(m0, s.data, slen);
+	memcpy(m1, s.data, slen);
+	memcpy(d0, s.data, slen);
+	memcpy(d1, s.data, slen);
 	vivi_bytes_free(&s);
-	d->chr_id = c->chr_id;
-	d->generation = c->generation;
-	d->max_gen = c->max_gen;
-	d->stem_source = c->stem_source;
-	*out = d;
+	vivi_cell *daughter = vivi_zalloc(1, sizeof(vivi_cell));
+	if (!daughter) {
+		vivi_dealloc(m0);
+		vivi_dealloc(m1);
+		vivi_dealloc(d0);
+		vivi_dealloc(d1);
+		*err = "out of memory";
+		return false;
+	}
+	/* the mother ages too and carries the new generation (mirrors Lua) */
+	vivi_dealloc(c->hom[0]);
+	vivi_dealloc(c->hom[1]);
+	c->hom[0] = m0;
+	c->hlen[0] = slen;
+	c->hom[1] = m1;
+	c->hlen[1] = slen;
+	c->generation++;
+	daughter->chr_id = c->chr_id;
+	daughter->hom[0] = d0;
+	daughter->hlen[0] = slen;
+	daughter->hom[1] = d1;
+	daughter->hlen[1] = slen;
+	daughter->generation = c->generation;
+	daughter->max_gen = c->max_gen;
+	daughter->stem_source = c->stem_source;
+	*out = daughter;
 	return true;
 }
 
 bool cell_damage(vivi_cell *c, int count, uint32_t seed, const char **err)
 {
+	if (!err) err = &cell_err_sink;
 	if (c->dead || !c->hom[0]) { *err = "cell is dead"; return false; }
 	vivi_bytes a, b;
-	if (!cell_damage_strand(&a, c->hom[0], c->hlen[0], count, seed + 1, err))
+	if (!cell_damage_strand(&a, c->hom[0], c->hlen[0], count, seed, err))
 		return false;
-	if (!cell_damage_strand(&b, c->hom[1], c->hlen[1], count, seed + 2, err)) {
+	if (!cell_damage_strand(&b, c->hom[1], c->hlen[1], count, seed + 1, err)) {
 		vivi_bytes_free(&a);
 		return false;
 	}

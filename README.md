@@ -1,5 +1,7 @@
 # Vivian — data that lives
 
+[![ci](https://github.com/RATWareLua/Vivian/actions/workflows/ci.yml/badge.svg)](https://github.com/RATWareLua/Vivian/actions/workflows/ci.yml)
+
 > Encode any bytes into a diploid synthetic genome: homologous repair,
 > viable point mutations, crossing-over, and a stem-cell niche for
 > rejuvenation. Not a checksum container — an organism with a medical chart.
@@ -53,7 +55,7 @@ physically survived.
   public.
 - Not a compressor: expect a small, deterministic size overhead (the
   VIV1 container adds ~3%).
-- Not production archival software — it is a rigorous toy: 379-check test
+- Not production archival software — it is a rigorous toy: 387-check test
   suite, official Chaskey-12 vectors, ASan-clean, but experimental.
 
 ## Quick start
@@ -64,11 +66,12 @@ C23, clang, no dependencies beyond the CRT's `memcpy/memset/memcmp`:
 cd framework\C
 build.bat lib        rem framework only -> vivi.lib
 build.bat            rem + test suite + interactive demo
-vivi_test.exe        rem pass=379 fail=0
+vivi_test.exe        rem pass=387 fail=0
 build.bat density    rem packing-density report (bits/nt)
+build.bat asan       rem test suite under AddressSanitizer
 ```
 
-Or with `make`: `make lib`, `make test`, `make demo`, `make density`.
+Or with `make`: `make lib`, `make test`, `make demo`, `make density`, `make asan`.
 
 ### Hello, organism
 
@@ -205,11 +208,18 @@ per chromosome: id (1), gene_raw (2 BE), mode\|h (1), units (1), flags (1),
 strand length (4 BE), strand bytes. Deterministic: same organism, same
 bytes. Byte-compatible with the Lua reference below.
 
+## Documentation
+
+- [`docs/README.md`](docs/README.md) — orientation, build/run, a tracked usage example
+- [`docs/api.md`](docs/api.md) — module-by-module API reference
+- [`docs/contracts.md`](docs/contracts.md) — memory ownership, errors, limits, determinism, threading
+
 ## Layout
 
 ```
 .
 ├── README.md
+├── docs/                  API reference, usage contracts and notes
 └── framework/
     ├── luau/              Lua reference implementation (the "biochemistry" spec,
     │                      byte-compatible with the C port)
@@ -217,27 +227,31 @@ bytes. Byte-compatible with the Lua reference below.
         ├── include/vivi/  public API: vivi.h, dna.h, genome.h, chromosome.h,
         │                  cell.h, organism.h
         ├── src/           the framework itself (no I/O, no CRT assumptions)
-        ├── test/          379-check self-test + density report
+        ├── test/          387-check self-test + density report
         │                  (own entrypoints, hosted)
         ├── demo/          interactive terminal tamagotchi (own entrypoint, hosted)
         ├── vivi.lib       built with build.bat lib / make lib
-        ├── build.bat      all | lib | test | density | clean
-        └── Makefile       all | lib | test | demo | density | clean
+        ├── build.bat      all | lib | test | density | asan | clean
+        └── Makefile       all | lib | test | demo | density | asan | clean
 ```
 
 The two implementations are independent: `luau/` is readable and
 hackable (run it with any Luau runtime, e.g.
-`luau framework/luau/demo.lua`), while `C/` is the deployable engine.
+`luau framework/luau/demo.lua`; the interpreter binary is not bundled —
+grab one from the [luau-lang/luau releases](https://github.com/luau-lang/luau/releases)),
+while `C/` is the deployable engine.
 Both write identical bytes.
 
 ## Verification
 
-- **379/379** checks: 64 official Chaskey-12 vectors; codec round-trips
+- **387/387** checks: 64 official Chaskey-12 vectors; codec round-trips
   for every parameter combination; constraint edge cases; gene/chromosome
   structure and corruption detection; diploid repair, checkpoints,
   senescence, stem rejuvenation; mutations, crossing-over mosaics; VIV1
   round-trips.
-- AddressSanitizer-clean (library and demo), zero leaks (CRT leak check).
+- AddressSanitizer-clean: `build.bat asan` / `make asan` runs the suite
+  under ASan. The codec's lazy tables are released at exit
+  (`dna_free_caches()`), so a CRT leak check is clean as well.
 - Byte-format equality between the Lua reference and the C port.
 
 ## Status

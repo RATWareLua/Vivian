@@ -2,11 +2,13 @@
 #include "vivi/chromosome.h"
 #include <string.h>
 
+/* absorbs messages when a caller passes err == nullptr */
+static const char *chr_err_sink;
+
 static constexpr uint8_t TELUNIT[3] = { 0xF2, 0xE3, 0x0E }; /* 2x TTAGGG */
 static constexpr uint8_t CMARK[3] = { 0x6D, 0x6D, 0x6D };   /* CTGA x3 */
-#define CENBYTES 18   /* marker (3) + 20 codons (15) */
 
-static void build_centromere(uint8_t out[CENBYTES], int chr_id, int flags, int ngenes,
+static bool build_centromere(uint8_t out[CENBYTES], int chr_id, int flags, int ngenes,
 	int generation)
 {
 	uint8_t raw[6] = { (uint8_t)chr_id, (uint8_t)flags,
@@ -21,16 +23,18 @@ static void build_centromere(uint8_t out[CENBYTES], int chr_id, int flags, int n
 	block[9] = (uint8_t)(tag & 255);
 	int v[20];
 	(void)genome_values_from_bytes(v, 20, block, 10);
-	vivi_bytes packed;
-	(void)genome_pack_codons(&packed, v, 20, nullptr);
+	vivi_bytes packed = { 0 };
+	if (!genome_pack_codons(&packed, v, 20, nullptr)) return false;
 	memcpy(out, CMARK, 3);
 	memcpy(out + 3, packed.data, packed.len);
 	vivi_bytes_free(&packed);
+	return true;
 }
 
 bool chr_encode(vivi_bytes *out, int chr_id, const uint8_t *data, size_t len,
 	const chr_opts *opts, const char **err)
 {
+	if (!err) err = &chr_err_sink;
 	*out = (vivi_bytes){ 0 };
 	chr_opts def;
 	memset(&def, 0, sizeof(def));
@@ -44,25 +48,28 @@ bool chr_encode(vivi_bytes *out, int chr_id, const uint8_t *data, size_t len,
 	if (chr_id < 0 || chr_id > 255) { *err = "invalid chr_id (byte 0..255)"; return false; }
 
 	vivi_buf o = { 0 };
+	size_t ngenes = 0;
+	vivi_bytes *gene_strands = nullptr;
+	size_t gene_cap = 0;
 	size_t tb = (size_t)units * 3;
 	if (!vivi_buf_reserve(&o, tb * 2 + CENBYTES + len + len / 16 + 64)) {
 		*err = "out of memory";
 		return false;
 	}
 	for (int u = 0; u < units; u++)
-		if (!vivi_buf_append(&o, TELUNIT, 3)) { *err = "out of memory"; return false; }
+		if (!vivi_buf_append(&o, TELUNIT, 3)) { *err = "out of memory"; goto fail; }
 	uint8_t cen[CENBYTES];
-	build_centromere(cen, chr_id, flags, 0, 0); /* ngenes patched after packing genes */
+	if (!build_centromere(cen, chr_id, flags, 0, 0)) {
+		*err = "out of memory";
+		goto fail;
+	}
 	size_t cen_pos = o.len;
-	if (!vivi_buf_append(&o, cen, CENBYTES)) { *err = "out of memory"; return false; }
+	if (!vivi_buf_append(&o, cen, CENBYTES)) { *err = "out of memory"; goto fail; }
 
 	/* pack genes */
-	size_t ngenes = 0;
-	vivi_bytes *gene_strands = nullptr;
-	size_t gene_cap = 0;
 	for (size_t off = 0; off < len; off += (size_t)gene_raw) {
-		if (ngenes > 65535) {
-			*err = "too many genes (max 65535)";
+		if (ngenes >= 256) {   /* gene ids are one byte: 0..255 */
+			*err = "too many genes (max 256)";
 			goto fail;
 		}
 		size_t clen = (len - off < (size_t)gene_raw) ? (len - off) : (size_t)gene_raw;
@@ -87,7 +94,10 @@ bool chr_encode(vivi_bytes *out, int chr_id, const uint8_t *data, size_t len,
 		gene_strands[ngenes++] = g;
 	}
 	/* rebuild the centromere with the real gene count and append genes */
-	build_centromere(cen, chr_id, flags, (int)ngenes, 0);
+	if (!build_centromere(cen, chr_id, flags, (int)ngenes, 0)) {
+		*err = "out of memory";
+		goto fail;
+	}
 	for (size_t i = 0; i < (size_t)CENBYTES; i++) o.p[cen_pos + i] = cen[i];
 	for (size_t i = 0; i < ngenes; i++)
 		if (!vivi_buf_append(&o, gene_strands[i].data, gene_strands[i].len)) {
@@ -95,7 +105,7 @@ bool chr_encode(vivi_bytes *out, int chr_id, const uint8_t *data, size_t len,
 			goto fail;
 		}
 	for (int u = 0; u < units; u++)
-		if (!vivi_buf_append(&o, TELUNIT, 3)) { *err = "out of memory"; return false; }
+		if (!vivi_buf_append(&o, TELUNIT, 3)) { *err = "out of memory"; goto fail; }
 	for (size_t i = 0; i < ngenes; i++) vivi_bytes_free(&gene_strands[i]);
 	vivi_dealloc(gene_strands);
 	out->data = o.p;
@@ -114,7 +124,7 @@ static int cen_valid_at(const uint8_t *strand, size_t slen, size_t p)
 	if (p + CENBYTES > slen) return 0;
 	if (memcmp(strand + p, CMARK, 3) != 0) return 0;
 	int v[20];
-	(void)genome_unpack_codons(v, 20, strand + p + 3, slen - p - 3, nullptr);
+	if (!genome_unpack_codons(v, 20, strand + p + 3, slen - p - 3, nullptr)) return 0;
 	uint8_t raw[6];
 	for (int i = 0; i < 6; i++) raw[i] = (uint8_t)(v[i * 2] * 16 + v[i * 2 + 1]);
 	uint32_t expected = ((uint32_t)(v[12] * 16 + v[13]) << 24)
@@ -136,6 +146,7 @@ static size_t find_bytes(const uint8_t *hay, size_t hlen, const uint8_t *needle,
 bool chr_parse(chr_record *out, const uint8_t *strand, size_t slen, int units_hint,
 	const char **err)
 {
+	if (!err) err = &chr_err_sink;
 	memset(out, 0, sizeof(*out));
 	if (!strand) { *err = "expected string"; return false; }
 	/* auto-detect the telomere size from the centromere marker position;
@@ -156,8 +167,8 @@ bool chr_parse(chr_record *out, const uint8_t *strand, size_t slen, int units_hi
 	size_t cenp = tb;
 	if (cenp + CENBYTES <= slen) {
 		int v[20];
-		if (memcmp(strand + cenp, CMARK, 3) == 0) {
-			(void)genome_unpack_codons(v, 20, strand + cenp + 3, slen - cenp - 3, nullptr);
+		if (memcmp(strand + cenp, CMARK, 3) == 0
+			&& genome_unpack_codons(v, 20, strand + cenp + 3, slen - cenp - 3, nullptr)) {
 			uint8_t raw[6];
 			for (int i = 0; i < 6; i++) raw[i] = (uint8_t)(v[i * 2] * 16 + v[i * 2 + 1]);
 			uint32_t expected = ((uint32_t)(v[12] * 16 + v[13]) << 24)
@@ -214,6 +225,7 @@ void chr_record_free(chr_record *r)
 
 bool chr_read(vivi_bytes *out, const chr_record *rec, const char **err)
 {
+	if (!err) err = &chr_err_sink;
 	*out = (vivi_bytes){ 0 };
 	if (!rec || !rec->cen_ok) { *err = "centromere damaged"; return false; }
 	if ((int)rec->gene_count != rec->ngenes) { *err = "gene count mismatch"; return false; }
@@ -248,6 +260,7 @@ bool chr_read(vivi_bytes *out, const chr_record *rec, const char **err)
 bool chr_set_generation(vivi_bytes *out, const uint8_t *strand, size_t slen, int generation,
 	const char **err)
 {
+	if (!err) err = &chr_err_sink;
 	*out = (vivi_bytes){ 0 };
 	chr_record rec;
 	if (!chr_parse(&rec, strand, slen, -1, err)) return false;
@@ -259,7 +272,11 @@ bool chr_set_generation(vivi_bytes *out, const uint8_t *strand, size_t slen, int
 	}
 	size_t tb = rec.telomere_bytes;
 	uint8_t cen[CENBYTES];
-	build_centromere(cen, rec.id, rec.flags, rec.ngenes, generation);
+	if (!build_centromere(cen, rec.id, rec.flags, rec.ngenes, generation)) {
+		chr_record_free(&rec);
+		*err = "out of memory";
+		return false;
+	}
 	uint8_t *ns = vivi_alloc(slen);
 	if (!ns) {
 		chr_record_free(&rec);
