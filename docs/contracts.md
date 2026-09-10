@@ -65,6 +65,7 @@ return.
 | `generation` | 0 .. 65535 (centromere field) |
 | `max_gen` | 0 = 60; replication at `generation + 1 > max_gen` fails "senescent" |
 | `vivi_channel_opts` probabilities | 0 .. 1 |
+| Reed-Solomon geometry (`parity.h`) | `n + m <= 255`, shard length >= 1 |
 
 ## Determinism and byte format
 

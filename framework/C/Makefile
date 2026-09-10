@@ -2,7 +2,7 @@
 CC      := clang
 AR      := llvm-ar
 CFLAGS  := -std=c23 -O2 -Wall -Wextra -Iinclude
-LIBSRC  := src/vivi.c src/dna.c src/genome.c src/chromosome.c src/channel.c src/pool.c src/cell.c src/organism.c
+LIBSRC  := src/vivi.c src/dna.c src/genome.c src/chromosome.c src/channel.c src/pool.c src/parity.c src/cell.c src/organism.c
 HDRS    := $(wildcard include/vivi/*.h)
 LIBOBJ  := $(LIBSRC:.c=.o)
 
@@ -47,6 +47,10 @@ sim: sim.exe
 	./sim.exe --size 256 --trials 1000 --p-sub 0.004 --p-drop 0.01
 	./sim.exe --size 1024 --gene-raw 64 --trials 1000 --p-sub 0.001 --header
 	./sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0.05 --p-cross 0.01
+	./sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --header
+	./sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --replicas 3
+	./sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --parity 4
+	./sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --replicas 2 --parity 4
 
 asan: 
 	$(CC) -std=c23 -O1 -g -fsanitize=address,undefined -DVIVI_TEST_TRACK -Iinclude -o vivi_test_asan test/test.c $(LIBSRC)

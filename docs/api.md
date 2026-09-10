@@ -491,3 +491,25 @@ bool vivi_pool_amplify(vivi_amp_result *out, const vivi_pool *pool, int id,
   channel. The amplicon seed is derived from the amplification seed and the
   chosen member.
 - An unknown target id fails with `"target not in pool"`.
+
+---
+
+## `parity.h` — Reed-Solomon erasure code (research layer)
+
+```c
+[[nodiscard]] bool vivi_parity_encode(uint8_t **shards, const uint8_t *const *data,
+    size_t n, size_t m, size_t len, const char **err);
+[[nodiscard]] bool vivi_parity_decode(uint8_t **out, const uint8_t *const *shards,
+    const uint8_t *present, size_t n, size_t m, size_t len, const char **err);
+void vivi_parity_release(uint8_t **shards, size_t count);
+```
+
+- Systematic MDS code over GF(256) (polynomial `0x11D`): shards `0..n-1`
+  are the data verbatim, and **any** `n` of the `n + m` shards reconstruct
+  the data.
+- `n + m <= 255`, `len >= 1`; every shard is exactly `len` bytes (pad
+  shorter data at the caller's side).
+- `present[k] != 0` marks a usable shard; fewer than `n` present fails with
+  `"too few shards"`.
+- Encoders allocate all output buffers and null entries on failure;
+  release with `vivi_parity_release` (it does not free the arrays).

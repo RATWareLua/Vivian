@@ -11,7 +11,7 @@ setlocal
 set CC=clang
 set AR=llvm-ar
 set CFLAGS=-std=c23 -O2 -Wall -Wextra -Iinclude
-set LIBSRC=src\vivi.c src\dna.c src\genome.c src\chromosome.c src\channel.c src\pool.c src\cell.c src\organism.c
+set LIBSRC=src\vivi.c src\dna.c src\genome.c src\chromosome.c src\channel.c src\pool.c src\parity.c src\cell.c src\organism.c
 
 if "%1"=="clean" goto clean
 if "%1"=="lib" goto lib
@@ -51,6 +51,10 @@ vivi_sim.exe --size 256 --trials 1000 --p-sub 0.002
 vivi_sim.exe --size 256 --trials 1000 --p-sub 0.004 --p-drop 0.01
 vivi_sim.exe --size 1024 --gene-raw 64 --trials 1000 --p-sub 0.001 --header
 vivi_sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0.05 --p-cross 0.01
+vivi_sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --header
+vivi_sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --replicas 3
+vivi_sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --parity 4
+vivi_sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --replicas 2 --parity 4
 exit /b %errorlevel%
 
 :asan

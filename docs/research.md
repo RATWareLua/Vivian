@@ -69,6 +69,21 @@ pool is that database plus the molecules. On-strand primer sites are planned
 for the `VIV14` revision. An off-target amplicon is reported (not silently
 accepted): the caller decodes with the requested id and must check.
 
+## Outer code (`vivi/parity.h`)
+
+Data genes are split into `n` equal-length shards; `m` parity shards are
+computed with a systematic Reed-Solomon code over GF(256), so **any** `n` of
+the `n + m` molecules reconstruct the data. Each shard is stored as a normal
+gene molecule (its own tag and id), and `--replicas K` additionally
+synthesizes `K` copies of every molecule. `vivi_sim --library` reads all
+molecules through the channel, marks a gene present when any replica
+survives intact, and calls `vivi_parity_decode`.
+
+```bat
+vivi_sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 ^
+             --replicas 2 --parity 4 --header
+```
+
 ## Running experiments (`vivi_sim`)
 
 ```bat
@@ -82,10 +97,12 @@ vivi_sim.exe --in payload.bin --out run.csv --p-sub 0.0005 --p-ins 1e-5 --p-del 
 One invocation = one CSV row; the first column selects the schema:
 
 ```
-whole:  mode,p_sub,p_ins,p_del,p_drop,trials,success,wrong,failed,dropped,
-        rate,avg_repaired,avg_structural,avg_dead,avg_anomaly
-access: mode,p_sub,p_ins,p_del,p_drop,p_access,p_cross,trials,success,
-        wrong,failed,dropped,cross,rate
+whole:   mode,p_sub,p_ins,p_del,p_drop,trials,success,wrong,failed,dropped,
+         rate,avg_repaired,avg_structural,avg_dead,avg_anomaly
+access:  mode,p_sub,p_ins,p_del,p_drop,p_access,p_cross,trials,success,
+         wrong,failed,dropped,cross,rate
+library: mode,p_sub,p_ins,p_del,p_drop,replicas,parity,genes,trials,success,
+         wrong,failed,dropped,rate,avg_present
 ```
 
 - `success` — the payload (whole) or the target gene (access) came back exact;
@@ -128,13 +145,30 @@ error rate far better than reading every gene — but it pays with primer
 dropout (5%) and loses the diploid backup. Off-target products (`cross = 8`)
 were rejected by the id check with zero silent miscalls (`wrong = 0`).
 
+### Outer code: replication (K) and parity (m)
+
+1 KiB payload, `gene_raw=64` (n = 16), p_sub = 0.001, 1000 trials:
+
+| redundancy | success | avg present |
+|---|---|---|
+| none (K=1, m=0) | 0.006 | 11.4 / 16 |
+| K = 3 replicas | 0.704 | 15.7 / 16 |
+| m = 4 parity | 0.274 | 14.3 / 20 |
+| K = 2 + m = 4 | **0.985** | 18.4 / 20 |
+
+Replication is cheap and effective but scales linearly with storage; parity
+already at `m = 4` recovers many patterns replication cannot (any 4 erasures
+among 20), and the combination is nearly lossless at 2.5× storage. With no
+redundancy the baseline is 0.006 — every one of 16 genes must survive, and
+each has only ~67% chance at this error rate.
+
 ## Roadmap
 
 1. **Channel + sim + CSV** — done (this document).
 2. **Random access** — done (`vivi/pool.h`, `vivi_sim --access`); on-strand
    primer sites move to the `VIV14` revision.
-3. **Outer code** — k homologs / parity genes so erasures are repairable,
-   with success-vs-k curves.
+3. **Outer code** — done (`vivi/parity.h`: systematic Reed-Solomon over
+   GF(256); `vivi_sim --library --replicas K --parity M`).
 4. **Fuzzing + benchmarks** — libFuzzer harnesses for every parser and a
    `make research` sweep runner.
 5. **Formalization** — channel assumptions, related work (DNA Fountain,

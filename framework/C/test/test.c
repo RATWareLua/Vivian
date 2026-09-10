@@ -14,6 +14,7 @@
 #include "vivi/organism.h"
 #include "vivi/channel.h"
 #include "vivi/pool.h"
+#include "vivi/parity.h"
 
 static int g_pass = 0, g_fail = 0;
 
@@ -475,6 +476,84 @@ static void test_pool(void)
 	vivi_bytes_free(&chr);
 }
 
+/* ---------- parity / outer code ---------- */
+static void test_parity(void)
+{
+	const char *err;
+	enum { N = 4, M = 2, LEN = 32 };
+	uint8_t databuf[N][LEN];
+	uint8_t *data[N], *shards[N + M], *out[N];
+	uint8_t present[N + M];
+	for (int i = 0; i < N; i++) {
+		rands(databuf[i], LEN);
+		data[i] = databuf[i];
+	}
+	CHECK(vivi_parity_encode(shards, (const uint8_t *const *)data, N, M, LEN, &err),
+		"parity encode");
+	CHECK(memcmp(shards[0], data[0], LEN) == 0
+		&& memcmp(shards[N - 1], data[N - 1], LEN) == 0, "parity is systematic");
+
+	memset(present, 1, sizeof(present));
+	CHECK(vivi_parity_decode(out, (const uint8_t *const *)shards, present, N, M, LEN, &err),
+		"parity decode all present");
+	int same = 1;
+	for (int i = 0; i < N; i++) if (memcmp(out[i], data[i], LEN) != 0) same = 0;
+	CHECK(same, "parity roundtrip");
+	vivi_parity_release(out, N);
+
+	int okall = 1;
+	for (int e = 0; e < N + M; e++) {
+		present[e] = 0;
+		if (!vivi_parity_decode(out, (const uint8_t *const *)shards, present, N, M, LEN, &err))
+			okall = 0;
+		else {
+			for (int i = 0; i < N; i++) if (memcmp(out[i], data[i], LEN) != 0) okall = 0;
+			vivi_parity_release(out, N);
+		}
+		present[e] = 1;
+	}
+	CHECK(okall, "parity tolerates any single erasure");
+
+	okall = 1;
+	for (int a = 0; a < N + M; a++) {
+		for (int b = a + 1; b < N + M; b++) {
+			present[a] = 0;
+			present[b] = 0;
+			if (!vivi_parity_decode(out, (const uint8_t *const *)shards, present, N, M, LEN, &err))
+				okall = 0;
+			else {
+				for (int i = 0; i < N; i++) if (memcmp(out[i], data[i], LEN) != 0) okall = 0;
+				vivi_parity_release(out, N);
+			}
+			present[a] = 1;
+			present[b] = 1;
+		}
+	}
+	CHECK(okall, "parity tolerates any two erasures");
+
+	present[0] = present[1] = present[2] = 0;
+	CHECK(!vivi_parity_decode(out, (const uint8_t *const *)shards, present, N, M, LEN, &err),
+		"parity rejects three erasures");
+	memset(present, 1, sizeof(present));
+	vivi_parity_release(shards, N + M);
+
+	/* n = 1 is a repetition code: parity equals the single data shard */
+	uint8_t one[8];
+	rands(one, sizeof(one));
+	uint8_t *d1[1] = { one };
+	uint8_t *s2[2];
+	CHECK(vivi_parity_encode(s2, (const uint8_t *const *)d1, 1, 1, sizeof(one), &err),
+		"parity n=1 encode");
+	CHECK(memcmp(s2[0], one, sizeof(one)) == 0 && memcmp(s2[1], one, sizeof(one)) == 0,
+		"parity n=1 repeats data");
+	vivi_parity_release(s2, 2);
+
+	uint8_t *dummy[1] = { one };
+	uint8_t *big[256];
+	CHECK(!vivi_parity_encode(big, (const uint8_t *const *)dummy, 255, 1, 1, &err),
+		"parity rejects bad geometry");
+}
+
 /* ---------- cells ---------- */
 static void test_cells(void)
 {
@@ -731,6 +810,7 @@ int main(void)
 	test_prng();
 	test_channel();
 	test_pool();
+	test_parity();
 	test_cells();
 	test_organisms();
 	dna_free_caches();
