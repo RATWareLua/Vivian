@@ -6,29 +6,29 @@ on:
   pull_request:
 
 env:
-  LLVM_VERSION: 23.1.0
+  LLVM_VERSION: 23
 
 jobs:
   build-and-test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
       - name: Install LLVM
         run: |
-          curl -fsSL -o /tmp/llvm.tar.xz \
-            "https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/LLVM-${LLVM_VERSION}-Linux-X64.tar.xz"
-          sudo mkdir -p /opt/llvm
-          sudo tar -xJf /tmp/llvm.tar.xz -C /opt/llvm --strip-components=1
-          echo "/opt/llvm/bin" >> "$GITHUB_PATH"
+          wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+          chmod +x /tmp/llvm.sh
+          sudo /tmp/llvm.sh "${LLVM_VERSION}"
+          sudo apt-get install -y "clang-${LLVM_VERSION}" "libclang-rt-${LLVM_VERSION}-dev"
 
       - name: Toolchain
-        run: clang --version
+        run: clang-${LLVM_VERSION} --version
 
       - name: Build and run the test suite
         working-directory: framework/C
-        run: make test
+        run: make test CC=clang-${LLVM_VERSION} AR=llvm-ar-${LLVM_VERSION}
 
       - name: AddressSanitizer + UBSan
         working-directory: framework/C
-        run: make asan
+        run: make asan CC=clang-${LLVM_VERSION}

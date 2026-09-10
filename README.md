@@ -60,8 +60,8 @@ physically survived.
 
 ## Quick start
 
-C23, clang 19+ (CI pins LLVM 23.1.0), no dependencies beyond the CRT's
-`memcpy/memset/memcmp`:
+C23, clang 19+ (CI installs LLVM 23 from apt.llvm.org), no dependencies
+beyond the CRT's `memcpy/memset/memcmp`:
 
 ```bat
 cd framework\C
