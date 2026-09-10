@@ -100,6 +100,31 @@ uint32_t vivi_rng_next(vivi_rng *r)
 	return x;
 }
 
+void vivi_prng_init(vivi_prng *p, uint64_t seed)
+{
+	p->state = seed;
+}
+
+static uint64_t prng_mix(vivi_prng *p)
+{
+	uint64_t z = (p->state += 0x9E37'79B9'7F4A'7C15ull);
+	z = (z ^ (z >> 30)) * 0xBF58'476D'1CE4'E5B9ull;
+	z = (z ^ (z >> 27)) * 0x94D0'49BB'1331'11EBull;
+	return z ^ (z >> 31);
+}
+
+uint64_t vivi_prng_next64(vivi_prng *p) { return prng_mix(p); }
+
+uint32_t vivi_prng_next(vivi_prng *p) { return (uint32_t)(prng_mix(p) >> 32); }
+
+bool vivi_prng_chance(vivi_prng *p, double prob)
+{
+	if (prob <= 0.0) return false;
+	if (prob >= 1.0) return true;
+	uint64_t thr = (uint64_t)(prob * 18446744073709551616.0);
+	return prng_mix(p) < thr;
+}
+
 
 
 

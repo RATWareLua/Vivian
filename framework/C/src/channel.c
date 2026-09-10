@@ -5,18 +5,6 @@
 /* absorbs messages when a caller passes err == nullptr */
 static const char *channel_err_sink;
 
-static uint32_t prob_threshold(double p)
-{
-	if (p <= 0.0) return 0;
-	if (p >= 1.0) return 0xFFFF'FFFFu;
-	return (uint32_t)(p * 4294967296.0);
-}
-
-static bool chance(vivi_rng *r, uint32_t thr)
-{
-	return vivi_rng_next(r) < thr;
-}
-
 static int digit_at(const uint8_t *s, size_t i)
 {
 	return (int)((s[i / 4] >> (2 * (3 - i % 4))) & 3u);
@@ -37,30 +25,27 @@ bool vivi_channel_read(vivi_read *out, const uint8_t *strand, size_t slen,
 			return false;
 		}
 	if (slen > (((size_t)-1) - 4) / 8) { *err = "strand too long"; return false; }
-	vivi_rng rng;
-	vivi_rng_init(&rng, opts->seed);
-	if (chance(&rng, prob_threshold(opts->p_drop))) {
+	vivi_prng rng;
+	vivi_prng_init(&rng, opts->seed);
+	if (	vivi_prng_chance(&rng, opts->p_drop)) {
 		out->dropped = 1;
 		return true;
 	}
 	size_t n = slen * 4;
 	uint8_t *digits = vivi_alloc(2 * n + 4);
 	if (!digits) { *err = "out of memory"; return false; }
-	uint32_t t_sub = prob_threshold(opts->p_sub);
-	uint32_t t_ins = prob_threshold(opts->p_ins);
-	uint32_t t_del = prob_threshold(opts->p_del);
 	size_t m = 0;
 	for (size_t i = 0; i < n; i++) {
 		int d = digit_at(strand, i);
-		if (!chance(&rng, t_del)) {
-			if (chance(&rng, t_sub)) {
-				int k = (int)(vivi_rng_next(&rng) % 3u);
+		if (!	vivi_prng_chance(&rng, opts->p_del)) {
+			if (	vivi_prng_chance(&rng, opts->p_sub)) {
+				int k = (int)(	vivi_prng_next(&rng) % 3u);
 				d = (d + 1 + k) % 4;   /* never the original base */
 			}
 			digits[m++] = (uint8_t)d;
 		}
-		if (chance(&rng, t_ins))
-			digits[m++] = (uint8_t)(vivi_rng_next(&rng) & 3u);
+		if (	vivi_prng_chance(&rng, opts->p_ins))
+			digits[m++] = (uint8_t)(	vivi_prng_next(&rng) & 3u);
 	}
 	size_t bytes = (m + 3) / 4;
 	if (bytes) {

@@ -75,6 +75,18 @@ typedef struct { uint32_t state; } vivi_rng;
 void vivi_rng_init(vivi_rng *r, uint32_t seed);
 uint32_t vivi_rng_next(vivi_rng *r);
 
+/* SplitMix64 -- the research-layer simulation PRNG (channel, pools).
+ * vivi_rng above is frozen because damage patterns are byte-compatible
+ * with the Lua reference; SplitMix64 has a 2^64 period and passes the
+ * standard test batteries, which xorshift32 does not guarantee once a
+ * sweep runs past 2^32 draws. */
+typedef struct { uint64_t state; } vivi_prng;
+
+void vivi_prng_init(vivi_prng *p, uint64_t seed);
+uint32_t vivi_prng_next(vivi_prng *p);    /* upper 32 bits of one mix step */
+uint64_t vivi_prng_next64(vivi_prng *p);
+bool vivi_prng_chance(vivi_prng *p, double prob);  /* prob in [0, 1] */
+
 static_assert(sizeof(uint32_t) * 8 == 32, "the codec requires 32-bit uint32_t");
 static_assert(sizeof(size_t) >= sizeof(uint32_t), "size_t must hold 32-bit lengths");
 

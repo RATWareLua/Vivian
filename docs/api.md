@@ -46,6 +46,20 @@ void     vivi_rng_init(vivi_rng *r, uint32_t seed);  /* seed 0 is normalized to 
 uint32_t vivi_rng_next(vivi_rng *r);                 /* xorshift32 (13,17,5) */
 ```
 
+`vivi_rng` is frozen: damage and mutation patterns are byte-compatible with
+the Lua reference. For new stochastic experiments use the research-layer
+PRNG (SplitMix64):
+
+```c
+typedef struct { uint64_t state; } vivi_prng;
+void     vivi_prng_init(vivi_prng *p, uint64_t seed);   /* any seed, 0 included */
+uint32_t vivi_prng_next(vivi_prng *p);                  /* upper 32 bits of one mix */
+uint64_t vivi_prng_next64(vivi_prng *p);
+bool     vivi_prng_chance(vivi_prng *p, double prob);   /* Bernoulli, prob in [0, 1] */
+```
+
+`vivi_prng_chance` does not consume the stream for `prob <= 0` or `prob >= 1`.
+
 The library is freestanding (`-DVIVI_NO_HOSTED`): it needs only `memcpy`,
 `memset`, `memcmp` and the allocator hooks.
 
@@ -433,3 +447,47 @@ typedef struct {
 
 See [research.md](research.md) for the `vivi_sim` experiment tool, the CSV
 schema and measured success curves.
+
+---
+
+## `pool.h` — oligo pool and random access (research layer)
+
+```c
+typedef struct {
+    int *ids;
+    uint8_t **strands;
+    size_t *lens;
+    size_t count, cap;
+} vivi_pool;
+
+void vivi_pool_free(vivi_pool *p);
+bool vivi_pool_add_chromosome(vivi_pool *p, const uint8_t *strand, size_t slen,
+                              const char **err);
+bool vivi_pool_add_gene(vivi_pool *p, int id, const uint8_t *strand, size_t slen,
+                        const char **err);
+
+typedef struct {
+    double p_access;       /* primer failure probability */
+    double p_cross;        /* off-target amplification probability */
+    uint32_t seed;
+    vivi_channel_opts ch;  /* errors on the amplicon */
+} vivi_amp_opts;
+
+typedef struct {
+    vivi_read read;        /* damaged amplicon ({ NULL, 0 } when dropped) */
+    int id;                /* id that was amplified, -1 when dropped */
+} vivi_amp_result;
+
+bool vivi_pool_amplify(vivi_amp_result *out, const vivi_pool *pool, int id,
+                       const vivi_amp_opts *opts, const char **err);
+```
+
+- A pool is a set of self-contained gene molecules (copies of chromosome
+  genes); primer sequences are external, as in a real primer database.
+- `vivi_pool_add_chromosome` copies every gene with a valid tag.
+- `vivi_pool_amplify` models one PCR: `p_access` gives no product,
+  `p_cross` may return an off-target member (reported by `id != requested`,
+  the caller must reject it), the amplicon then passes through the ordinary
+  channel. The amplicon seed is derived from the amplification seed and the
+  chosen member.
+- An unknown target id fails with `"target not in pool"`.

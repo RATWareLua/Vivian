@@ -1,9 +1,11 @@
 /* sim.c -- channel experiments: encode -> damage -> repair -> CSV (hosted).
  *
- * Runs a diploid, single-chromosome organism through the error channel
- * `--trials` times and reports how often organism_read() recovers the
- * payload exactly. One CSV row per invocation; loop over parameters to
- * build sweeps. See docs/research.md.
+ * Two modes share one simulator:
+ *   whole  -- read the whole diploid chromosome through the repair machinery
+ *   access -- amplify a single gene id from an oligo pool ("PCR primer"),
+ *             modelling primer dropout and off-target cross-talk
+ * One CSV row per invocation; loop over parameters to build sweeps.
+ * See docs/research.md.
  */
 #define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
@@ -11,6 +13,7 @@
 #include <string.h>
 #include "vivi/organism.h"
 #include "vivi/channel.h"
+#include "vivi/pool.h"
 
 static void usage(void)
 {
@@ -29,9 +32,14 @@ static void usage(void)
 		"  --h H          dense homopolymer limit (default 3)\n"
 		"  --gene-raw R   raw bytes per gene (default 1024)\n"
 		"  --units U      telomere repeat units (default 4)\n"
+		"  --access       random-access mode: amplify one gene id per trial\n"
+		"  --p-access P   primer failure probability (default 0)\n"
+		"  --p-cross P    off-target amplification probability (default 0)\n"
 		"  --header       print the CSV header first\n"
-		"columns: p_sub,p_ins,p_del,p_drop,trials,success,wrong,failed,dropped,\n"
-		"         rate,avg_repaired,avg_structural,avg_dead,avg_anomaly\n");
+		"whole:  mode,p_sub,p_ins,p_del,p_drop,trials,success,wrong,failed,dropped,\n"
+		"        rate,avg_repaired,avg_structural,avg_dead,avg_anomaly\n"
+		"access: mode,p_sub,p_ins,p_del,p_drop,p_access,p_cross,trials,success,\n"
+		"        wrong,failed,dropped,cross,rate\n");
 }
 
 static int parse_u32(const char *s, uint32_t *out)
@@ -58,8 +66,9 @@ int main(int argc, char **argv)
 {
 	const char *in_path = nullptr, *out_path = nullptr;
 	uint32_t size = 0, trials = 1000, seed = 1;
-	int have_size = 0, header = 0;
+	int have_size = 0, header = 0, access_mode = 0;
 	double p_sub = 0.0, p_ins = 0.0, p_del = 0.0, p_drop = 0.0;
+	double p_access = 0.0, p_cross = 0.0;
 	chr_opts co = { 1024, 0, 3, 4, 0 };
 
 	for (int i = 1; i < argc; i++) {
@@ -74,6 +83,9 @@ int main(int argc, char **argv)
 		else if (!strcmp(a, "--p-ins") && parse_double(v, &p_ins)) { i++; }
 		else if (!strcmp(a, "--p-del") && parse_double(v, &p_del)) { i++; }
 		else if (!strcmp(a, "--p-drop") && parse_double(v, &p_drop)) { i++; }
+		else if (!strcmp(a, "--p-access") && parse_double(v, &p_access)) { i++; }
+		else if (!strcmp(a, "--p-cross") && parse_double(v, &p_cross)) { i++; }
+		else if (!strcmp(a, "--access")) { access_mode = 1; }
 		else if (!strcmp(a, "--h")) {
 			uint32_t h;
 			if (!parse_u32(v, &h) || h < 3 || h > 12) { usage(); return 2; }
@@ -121,9 +133,14 @@ int main(int argc, char **argv)
 		plen = size;
 		payload = vivi_alloc(plen ? plen : 1);
 		if (!payload) { fprintf(stderr, "vivi_sim: out of memory\n"); return 1; }
-		vivi_rng r;
-		vivi_rng_init(&r, seed);
-		for (size_t i = 0; i < plen; i++) payload[i] = (uint8_t)(vivi_rng_next(&r) & 255u);
+		vivi_prng r;
+		vivi_prng_init(&r, seed);
+		for (size_t i = 0; i < plen; i++) payload[i] = (uint8_t)(vivi_prng_next(&r) & 255u);
+	}
+	if (access_mode && plen == 0) {
+		fprintf(stderr, "vivi_sim: --access needs a non-empty payload\n");
+		vivi_dealloc(payload);
+		return 1;
 	}
 
 	const char *err = nullptr;
@@ -146,55 +163,108 @@ int main(int argc, char **argv)
 		memcpy(pristine[h], org->hom[h][0], prlen[h]);
 	}
 
-	unsigned long long success = 0, wrong = 0, failed = 0, dropped = 0;
-	unsigned long long sum_repaired = 0, sum_struct = 0, sum_dead = 0, sum_anom = 0;
-	for (uint32_t t = 0; t < trials; t++) {
-		for (int h = 0; h < 2; h++) {
-			vivi_channel_opts ch = { p_sub, p_ins, p_del, p_drop,
-				seed + t * 2u + (uint32_t)h + 1u };
-			vivi_read rd;
-			if (!vivi_channel_read(&rd, pristine[h], prlen[h], &ch, &err)) {
-				fprintf(stderr, "vivi_sim: channel: %s\n", err ? err : "?");
+	long long success = 0, wrong = 0, failed = 0, dropped = 0, cross = 0;
+	long long sum_repaired = 0, sum_struct = 0, sum_dead = 0, sum_anom = 0;
+
+	if (access_mode) {
+		vivi_pool pool = { 0 };
+		if (!vivi_pool_add_chromosome(&pool, pristine[0], prlen[0], &err)) {
+			fprintf(stderr, "vivi_sim: pool: %s\n", err ? err : "?");
+			return 1;
+		}
+		for (uint32_t t = 0; t < trials; t++) {
+			vivi_prng pick_rng;
+			vivi_prng_init(&pick_rng, (uint64_t)seed + t + 1u);
+			int gid = pool.ids[vivi_prng_next(&pick_rng) % (uint32_t)pool.count];
+			vivi_amp_opts ao = { p_access, p_cross, seed + t + 1u,
+				{ p_sub, p_ins, p_del, 0.0, 0 } };
+			vivi_amp_result ar;
+			if (!vivi_pool_amplify(&ar, &pool, gid, &ao, &err)) {
+				fprintf(stderr, "vivi_sim: amplify: %s\n", err ? err : "?");
 				return 1;
 			}
-			vivi_dealloc(org->hom[h][0]);
-			org->hom[h][0] = rd.strand.data;
-			org->hlen[h][0] = rd.strand.len;
-			if (rd.dropped) dropped++;
+			if (ar.read.dropped) {
+				dropped++;
+				continue;
+			}
+			if (ar.id != gid) cross++;
+			genome_gene g;
+			if (genome_gene_read(&g, ar.read.strand.data, ar.read.strand.len, gid, &err)) {
+				size_t off = (size_t)gid * (size_t)co.gene_raw;
+				size_t exp = (off < plen)
+					? ((plen - off < (size_t)co.gene_raw) ? plen - off : (size_t)co.gene_raw)
+					: 0;
+				if (g.data_len == exp && (exp == 0 || memcmp(g.data, payload + off, exp) == 0))
+					success++;
+				else
+					wrong++;
+				vivi_dealloc(g.data);
+			} else {
+				failed++;
+			}
+			vivi_bytes_free(&ar.read.strand);
 		}
-		vivi_bytes *data = nullptr;
-		cell_report rep;
-		if (organism_read(&data, org, &rep, &err)) {
-			if (data[0].len == plen
-				&& (plen == 0 || memcmp(data[0].data, payload, plen) == 0))
-				success++;
-			else
-				wrong++;
-			vivi_bytes_free_n(data, org->nchr);
-		} else {
-			failed++;
+		FILE *out = stdout;
+		if (out_path && !(out = fopen(out_path, "wb"))) {
+			fprintf(stderr, "vivi_sim: cannot write %s\n", out_path);
+			return 1;
 		}
-		sum_repaired += (unsigned long long)rep.repaired;
-		sum_struct += (unsigned long long)rep.structural;
-		sum_dead += (unsigned long long)rep.dead;
-		sum_anom += (unsigned long long)rep.anomaly;
+		if (header)
+			fprintf(out, "mode,p_sub,p_ins,p_del,p_drop,p_access,p_cross,trials,"
+				"success,wrong,failed,dropped,cross,rate\n");
+		fprintf(out, "access,%g,%g,%g,%g,%g,%g,%u,%lld,%lld,%lld,%lld,%lld,%.6f\n",
+			p_sub, p_ins, p_del, p_drop, p_access, p_cross, trials,
+			success, wrong, failed, dropped, cross, (double)success / (double)trials);
+		if (out != stdout) fclose(out);
+		vivi_pool_free(&pool);
+	} else {
+		for (uint32_t t = 0; t < trials; t++) {
+			for (int h = 0; h < 2; h++) {
+				vivi_channel_opts ch = { p_sub, p_ins, p_del, p_drop,
+					seed + t * 2u + (uint32_t)h + 1u };
+				vivi_read rd;
+				if (!vivi_channel_read(&rd, pristine[h], prlen[h], &ch, &err)) {
+					fprintf(stderr, "vivi_sim: channel: %s\n", err ? err : "?");
+					return 1;
+				}
+				vivi_dealloc(org->hom[h][0]);
+				org->hom[h][0] = rd.strand.data;
+				org->hlen[h][0] = rd.strand.len;
+				if (rd.dropped) dropped++;
+			}
+			vivi_bytes *data = nullptr;
+			cell_report rep;
+			if (organism_read(&data, org, &rep, &err)) {
+				if (data[0].len == plen
+					&& (plen == 0 || memcmp(data[0].data, payload, plen) == 0))
+					success++;
+				else
+					wrong++;
+				vivi_bytes_free_n(data, org->nchr);
+			} else {
+				failed++;
+			}
+			sum_repaired += (long long)rep.repaired;
+			sum_struct += (long long)rep.structural;
+			sum_dead += (long long)rep.dead;
+			sum_anom += (long long)rep.anomaly;
+		}
+		FILE *out = stdout;
+		if (out_path && !(out = fopen(out_path, "wb"))) {
+			fprintf(stderr, "vivi_sim: cannot write %s\n", out_path);
+			return 1;
+		}
+		if (header)
+			fprintf(out, "mode,p_sub,p_ins,p_del,p_drop,trials,success,wrong,failed,dropped,"
+				"rate,avg_repaired,avg_structural,avg_dead,avg_anomaly\n");
+		double dt = (double)trials;
+		fprintf(out, "whole,%g,%g,%g,%g,%u,%lld,%lld,%lld,%lld,%.6f,%.4f,%.4f,%.4f,%.4f\n",
+			p_sub, p_ins, p_del, p_drop, trials,
+			success, wrong, failed, dropped, (double)success / dt,
+			(double)sum_repaired / dt, (double)sum_struct / dt,
+			(double)sum_dead / dt, (double)sum_anom / dt);
+		if (out != stdout) fclose(out);
 	}
-
-	FILE *out = stdout;
-	if (out_path && !(out = fopen(out_path, "wb"))) {
-		fprintf(stderr, "vivi_sim: cannot write %s\n", out_path);
-		return 1;
-	}
-	if (header)
-		fprintf(out, "p_sub,p_ins,p_del,p_drop,trials,success,wrong,failed,dropped,"
-			"rate,avg_repaired,avg_structural,avg_dead,avg_anomaly\n");
-	double dtrials = (double)trials;
-	fprintf(out, "%g,%g,%g,%g,%u,%llu,%llu,%llu,%llu,%.6f,%.4f,%.4f,%.4f,%.4f\n",
-		p_sub, p_ins, p_del, p_drop, trials,
-		success, wrong, failed, dropped, (double)success / dtrials,
-		(double)sum_repaired / dtrials, (double)sum_struct / dtrials,
-		(double)sum_dead / dtrials, (double)sum_anom / dtrials);
-	if (out != stdout) fclose(out);
 
 	for (int h = 0; h < 2; h++) vivi_dealloc(pristine[h]);
 	organism_free(org);

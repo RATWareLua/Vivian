@@ -55,7 +55,7 @@ physically survived.
   public.
 - Not a compressor: expect a small, deterministic size overhead (the
   VIV1 container adds ~3%).
-- Not production archival software — it is a rigorous toy: 405-check test
+- Not production archival software — it is a rigorous toy: 424-check test
   suite, official Chaskey-12 vectors, ASan-clean, but experimental.
 
 ## Quick start
@@ -67,7 +67,7 @@ beyond the CRT's `memcpy/memset/memcmp`:
 cd framework\C
 build.bat lib        rem framework only -> vivi.lib
 build.bat            rem + test suite + interactive demo
-vivi_test.exe        rem pass=405 fail=0
+vivi_test.exe        rem pass=424 fail=0
 build.bat density    rem packing-density report (bits/nt)
 build.bat sim        rem channel experiment sweep (CSV)
 build.bat asan       rem test suite under AddressSanitizer
@@ -233,7 +233,7 @@ named `VIV14` → `VIV14N` → `VIV14NB4NSH33` ("Vivian Banshee"); see
         ├── include/vivi/  public API: vivi.h, dna.h, genome.h, chromosome.h,
         │                  cell.h, organism.h
         ├── src/           the framework itself (no I/O, no CRT assumptions)
-        ├── test/          405-check self-test, density and sim reports
+        ├── test/          424-check self-test, density and sim reports
         │                  (own entrypoints, hosted)
         ├── demo/          interactive terminal tamagotchi (own entrypoint, hosted)
         ├── vivi.lib       built with build.bat lib / make lib
@@ -250,7 +250,7 @@ Both write identical bytes.
 
 ## Verification
 
-- **405/405** checks: 64 official Chaskey-12 vectors; codec round-trips
+- **424/424** checks: 64 official Chaskey-12 vectors; codec round-trips
   for every parameter combination; constraint edge cases; gene/chromosome
   structure and corruption detection; diploid repair, checkpoints,
   senescence, stem rejuvenation; mutations, crossing-over mosaics; VIV1

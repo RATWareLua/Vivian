@@ -79,8 +79,9 @@ return.
 - Damage/mutation never insert or delete: strand lengths are stable, so
   homologous loci stay aligned. (The research channel *does* model
   insertions and deletions, outside the format itself; see research.md.)
-- Channel reads are deterministic per seed, with a pinned draw order, so a
-  simulation is reproducible from `(strand, rates, seed)` alone.
+- Channel reads and pool amplifications are deterministic per seed, with a
+  pinned draw order, so a simulation is reproducible from
+  `(strand, rates, seed)` alone.
 - The C port is byte-compatible with the Lua reference (`framework/luau/`)
   for codec output, gene/chromosome encoding, damage patterns, cell
   homologs and the `VIV1` container.

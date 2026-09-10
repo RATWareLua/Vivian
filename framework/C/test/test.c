@@ -13,6 +13,7 @@
 #endif
 #include "vivi/organism.h"
 #include "vivi/channel.h"
+#include "vivi/pool.h"
 
 static int g_pass = 0, g_fail = 0;
 
@@ -348,6 +349,25 @@ static void test_chromosome(void)
 	}
 }
 
+/* ---------- prng ---------- */
+static void test_prng(void)
+{
+	vivi_prng a, b;
+	vivi_prng_init(&a, 42);
+	vivi_prng_init(&b, 42);
+	uint64_t x = vivi_prng_next64(&a);
+	uint64_t y = vivi_prng_next64(&b);
+	CHECK(x == y, "prng deterministic");
+	vivi_prng_init(&b, 43);
+	CHECK(vivi_prng_next64(&b) != x, "prng seed changes stream");
+	CHECK(!vivi_prng_chance(&a, 0.0), "prng chance p=0");
+	CHECK(vivi_prng_chance(&a, 1.0), "prng chance p=1");
+	vivi_prng_init(&a, 0);
+	uint64_t z1 = vivi_prng_next64(&a);
+	uint64_t z2 = vivi_prng_next64(&a);
+	CHECK(z1 != 0 && z1 != z2, "prng works from seed 0");
+}
+
 /* ---------- channel ---------- */
 static void test_channel(void)
 {
@@ -409,6 +429,50 @@ static void test_channel(void)
 	vivi_bytes_free(&rd.strand);
 	vivi_bytes_free(&enc);
 	vivi_bytes_free(&dec);
+}
+
+/* ---------- pool / random access ---------- */
+static void test_pool(void)
+{
+	const char *err;
+	uint8_t payload[600];
+	rands(payload, sizeof(payload));
+	chr_opts co = { 64, 0, 3, 4, 0 };
+	vivi_bytes chr = { 0 };
+	CHECK(chr_encode(&chr, 0, payload, sizeof(payload), &co, &err), "pool chromosome");
+	vivi_pool pool = { 0 };
+	CHECK(vivi_pool_add_chromosome(&pool, chr.data, chr.len, &err), "pool add chromosome");
+	CHECK(pool.count == 10, "pool holds every gene");
+
+	vivi_amp_opts ao = { 0.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0 } };
+	vivi_amp_result a1, a2;
+	CHECK(vivi_pool_amplify(&a1, &pool, 3, &ao, &err), "pool amplify");
+	CHECK(vivi_pool_amplify(&a2, &pool, 3, &ao, &err), "pool amplify again");
+	CHECK(a1.id == 3 && !a1.read.dropped && !a2.read.dropped, "pool product on target");
+	CHECK(a1.read.strand.len == a2.read.strand.len
+		&& memcmp(a1.read.strand.data, a2.read.strand.data, a1.read.strand.len) == 0,
+		"pool deterministic per seed");
+	genome_gene g;
+	CHECK(genome_gene_read(&g, a1.read.strand.data, a1.read.strand.len, 3, &err),
+		"pool amplicon reads");
+	CHECK(g.data_len == 64 && memcmp(g.data, payload + 3 * 64, 64) == 0, "pool on-target data");
+	vivi_dealloc(g.data);
+	vivi_bytes_free(&a1.read.strand);
+	vivi_bytes_free(&a2.read.strand);
+
+	vivi_amp_opts fail = { 1.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0 } };
+	CHECK(vivi_pool_amplify(&a1, &pool, 3, &fail, &err), "pool primer failure");
+	CHECK(a1.read.dropped && a1.id == -1, "pool dropped product");
+
+	vivi_amp_opts xtalk = { 0.0, 1.0, 7, { 0.0, 0.0, 0.0, 0.0, 0 } };
+	CHECK(vivi_pool_amplify(&a1, &pool, 3, &xtalk, &err), "pool cross-talk");
+	CHECK(a1.id >= 0 && a1.id != 3, "pool off-target id");
+	vivi_bytes_free(&a1.read.strand);
+
+	CHECK(!vivi_pool_amplify(&a1, &pool, 999, &ao, &err), "pool unknown target");
+
+	vivi_pool_free(&pool);
+	vivi_bytes_free(&chr);
 }
 
 /* ---------- cells ---------- */
@@ -664,7 +728,9 @@ int main(void)
 	test_dna();
 	test_genome();
 	test_chromosome();
+	test_prng();
 	test_channel();
+	test_pool();
 	test_cells();
 	test_organisms();
 	dna_free_caches();
