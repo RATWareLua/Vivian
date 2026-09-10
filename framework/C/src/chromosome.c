@@ -5,8 +5,8 @@
 /* absorbs messages when a caller passes err == nullptr */
 static const char *chr_err_sink;
 
-static constexpr uint8_t TELUNIT[3] = { 0xF2, 0xE3, 0x0E }; /* 2x TTAGGG */
-static constexpr uint8_t CMARK[3] = { 0x6D, 0x6D, 0x6D };   /* CTGA x3 */
+static const uint8_t TELUNIT[3] = { 0xF2, 0xE3, 0x0E }; /* 2x TTAGGG */
+static const uint8_t CMARK[3] = { 0x6D, 0x6D, 0x6D };   /* CTGA x3 */
 
 static bool build_centromere(uint8_t out[CENBYTES], int chr_id, int flags, int ngenes,
 	int generation)
