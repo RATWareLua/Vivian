@@ -74,6 +74,8 @@ research: sim.exe
 	./sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0 --header > research_access.csv
 	@for a in 0.01 0.05 0.1; do \
 		./sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access $$a --p-cross 0.01 >> research_access.csv; done
+	./sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0 --p-cross 0.01 --p-primer 0.05 >> research_access.csv
+	./sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0.05 --p-cross 0.01 --p-primer 0.05 >> research_access.csv
 	./sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --header > research_library.csv
 	@for k in 2 3 4; do \
 		./sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --replicas $$k >> research_library.csv; done

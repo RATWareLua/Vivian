@@ -33,6 +33,8 @@ local TELUNIT = "\242\227\14"
 local CMARK = "\109\109\109"  -- 12 bases CTGA x3 (digits 1,2,3,1)
 local CENBYTES = 18           -- marker (3) + 20 codons (15)
 local CEN2BYTES = 27          -- marker (3) + 32 codons (24)
+local PMARK = "\85\85\85"     -- 12 bases AAAA x3, primer-site marker
+local PRIMERBYTES = 15        -- marker (3) + 16 codons (12)
 
 local function build_centromere(chr_id, flags, ngenes, generation)
 	local raw = char(band(chr_id, 255), band(flags, 255),
@@ -55,6 +57,30 @@ local function build_centromere2(chr_id, flags, ngenes, generation, np, rawlen)
 	local block = raw .. char(band(rshift(c, 24), 255), band(rshift(c, 16), 255),
 		band(rshift(c, 8), 255), band(c, 255))
 	return CMARK .. genome.pack_codons(genome.values_from_bytes(block))
+end
+
+-- VIV14NB4NSH33 primer site: raw 4 bytes (barcode BE, zero, zero) plus a
+-- 32-bit tag = 8 bytes -> 16 codons -> 12 bytes after the marker
+local function build_primer(barcode)
+	local raw = char(band(rshift(barcode, 8), 255), band(barcode, 255), 0, 0)
+	local c = genome.chaskey32(raw)
+	local block = raw .. char(band(rshift(c, 24), 255), band(rshift(c, 16), 255),
+		band(rshift(c, 8), 255), band(c, 255))
+	return PMARK .. genome.pack_codons(genome.values_from_bytes(block))
+end
+
+local function parse_primer(strand, p)
+	if p + PRIMERBYTES - 1 > #strand or sub(strand, p, p + 2) ~= PMARK then
+		return nil
+	end
+	local v = genome.unpack_codons(sub(strand, p + 3, p + PRIMERBYTES - 1), 16)
+	local raw = genome.bytes_from_values(v, 4)
+	local expected = (v[9] * 16 + v[10]) * 0x1000000
+		+ (v[11] * 16 + v[12]) * 0x10000
+		+ (v[13] * 16 + v[14]) * 0x100
+		+ (v[15] * 16 + v[16])
+	if genome.chaskey32(raw) ~= expected then return nil end
+	return byte(raw, 1) * 256 + byte(raw, 2)
 end
 
 local function encode(chr_id, data, opts)
@@ -86,7 +112,14 @@ local function encode(chr_id, data, opts)
 	if type(np) ~= "number" or np ~= floor(np) or np < 0 or np > 16 then
 		return nil, "invalid parity (integer 0..16)"
 	end
+	local primer = opts.primer or 0
+	if type(primer) ~= "number" or primer ~= floor(primer)
+		or primer < 0 or primer > 65535 then
+		return nil, "invalid primer (integer 0..65535)"
+	end
 	local telo = TELUNIT:rep(units)
+	local head = telo
+	if primer > 0 then head = head .. build_primer(primer) end   -- forward site
 	local genes, ngenes = {}, 0
 	for i = 1, #data, gene_raw do
 		if ngenes >= 256 then   -- gene ids are one byte: 0..255
@@ -99,9 +132,11 @@ local function encode(chr_id, data, opts)
 		genes[ngenes] = g
 	end
 	-- generation is stamped by set_generation / replication, encode writes 0
+	local tail = telo
+	if primer > 0 then tail = build_primer(primer) .. tail end   -- reverse site
 	local cen = build_centromere(chr_id, flags, ngenes, 0)
 	if np == 0 then
-		return telo .. cen .. concat(genes) .. telo
+		return head .. cen .. concat(genes) .. tail
 	end
 	if ngenes == 0 then return nil, "parity needs a non-empty payload" end
 	if ngenes + np > 255 then return nil, "too many genes with parity (max 255)" end
@@ -123,7 +158,7 @@ local function encode(chr_id, data, opts)
 		par_genes[j] = g
 	end
 	local cen2 = build_centromere2(chr_id, flags, ngenes + np, 0, np, #data)
-	return telo .. cen2 .. concat(genes) .. concat(par_genes) .. telo
+	return head .. cen2 .. concat(genes) .. concat(par_genes) .. tail
 end
 
 -- parse returns a chromosome record; gene offsets are absolute (into
@@ -181,24 +216,43 @@ local function parse(strand, opts)
 	-- phantom markers in payloads cannot pass the tag check
 	local p_cmark = find(strand, CMARK, 1, true)
 	local units = (opts and opts.units) or 4
-	if p_cmark and p_cmark > 1 and (p_cmark - 1) % #TELUNIT == 0
-		and cen_parse(strand, p_cmark) then
-		units = (p_cmark - 1) / #TELUNIT
+	if p_cmark and p_cmark > 1 and cen_parse(strand, p_cmark) then
+		-- a valid forward primer site shifts the centromere by PRIMERBYTES
+		local cstart = p_cmark
+		if p_cmark > PRIMERBYTES and parse_primer(strand, p_cmark - PRIMERBYTES) then
+			cstart = p_cmark - PRIMERBYTES
+		end
+		if (cstart - 1) % #TELUNIT == 0 then
+			units = (cstart - 1) / #TELUNIT
+		end
 	end
 	local telo = TELUNIT:rep(units)
 	local tb = #telo
 	if #strand < 2 * tb + CENBYTES then return nil, "chromosome too short" end
 	local telo_ok = sub(strand, 1, tb) == telo
 		and sub(strand, #strand - tb + 1) == telo
-	local f = cen_parse(strand, tb + 1)
+	local primer, primer_bytes = 0, 0
+	if tb + PRIMERBYTES <= #strand then
+		local bc = parse_primer(strand, tb + 1)
+		if bc and bc > 0 then
+			primer = bc
+			primer_bytes = PRIMERBYTES
+		end
+	end
+	local f = cen_parse(strand, tb + 1 + primer_bytes)
 	if f and f.version == 2 and #strand < 2 * tb + CEN2BYTES then
 		return nil, "chromosome too short"
+	end
+	local primer_ok = false
+	if primer > 0 then
+		local rp = parse_primer(strand, #strand - tb - PRIMERBYTES + 1)
+		if rp == primer then primer_ok = true end
 	end
 	local genes = {}
 	if f then
 		local cen_bytes = (f.version == 2) and CEN2BYTES or CENBYTES
-		local interior = sub(strand, tb + cen_bytes + 1, #strand - tb)
-		local base = tb + cen_bytes
+		local base = tb + primer_bytes + cen_bytes
+		local interior = sub(strand, base + 1, #strand - tb - primer_bytes)
 		local gs = genome.scan(interior)
 		for i = 1, #gs do
 			local g = gs[i]
@@ -216,6 +270,7 @@ local function parse(strand, opts)
 		ngenes = f and f.ngenes or nil, generation = f and f.generation or nil,
 		parity = f and f.parity or 0, rawlen = f and f.rawlen or 0,
 		cen_version = f and f.version or 0,
+		primer = primer, primer_ok = primer_ok, primer_bytes = primer_bytes,
 		telomere_ok = telo_ok, cen_ok = f ~= nil,
 		genes = genes, telomere_bytes = tb, units = units,
 	}
@@ -316,6 +371,7 @@ local function set_generation(strand, generation, opts)
 		return nil, "invalid generation (0..65535)"
 	end
 	local tb = rec.telomere_bytes
+	local pb = rec.primer_bytes or 0
 	local cen, cen_bytes
 	if rec.cen_version == 2 then
 		cen = build_centromere2(rec.id, rec.flags, rec.ngenes, generation,
@@ -325,7 +381,13 @@ local function set_generation(strand, generation, opts)
 		cen = build_centromere(rec.id, rec.flags, rec.ngenes, generation)
 		cen_bytes = CENBYTES
 	end
-	return sub(strand, 1, tb) .. cen .. sub(strand, tb + cen_bytes + 1)
+	return sub(strand, 1, tb + pb) .. cen .. sub(strand, tb + pb + cen_bytes + 1)
+end
+
+-- physical random access: a molecule is amplifiable when its primer pair
+-- survived (strands without primer sites are pool-addressable as before)
+local function amplifiable(rec)
+	return (rec.primer or 0) == 0 or rec.primer_ok == true
 end
 
 return {
@@ -333,10 +395,14 @@ return {
 	parse = parse,
 	read = read,
 	set_generation = set_generation,
+	amplifiable = amplifiable,
 	build_centromere = build_centromere,
 	build_centromere2 = build_centromere2,
+	build_primer = build_primer,
 	TELUNIT = TELUNIT,
 	CMARK = CMARK,
+	PMARK = PMARK,
 	CENBYTES = CENBYTES,
 	CEN2BYTES = CEN2BYTES,
+	PRIMERBYTES = PRIMERBYTES,
 }

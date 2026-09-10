@@ -339,13 +339,21 @@ end
 -- VIV14 / VIV14N: versioned container with both homologs and max_gen.
 -- VIV14N additionally stores the parity count per chromosome; when a
 -- VIV14 container carries CEN2 strands the count is inferred from them.
-local function serialize_rev(org, magic, with_parity)
+local function serialize_rev(org, magic, with_parity, with_primers)
 	if org.dead or not org.homologs then return nil, "organism dead" end
 	if org.generation < 0 or org.generation > 65535 then
 		return nil, "generation out of range"
 	end
 	if org.max_gen < 0 or org.max_gen > 65535 then
 		return nil, "max_gen out of range"
+	end
+	if with_primers then
+		for i = 1, #org.chr_ids do
+			local p = (org.chr_opts[i] or {}).primer or 0
+			if type(p) ~= "number" or p ~= floor(p) or p < 0 or p > 65535 then
+				return nil, "primer out of range"
+			end
+		end
 	end
 	local t = { magic, char(1),  -- flags: diploid pair stored
 		char(band(rshift(org.generation, 8), 255), band(org.generation, 255)),
@@ -364,6 +372,10 @@ local function serialize_rev(org, magic, with_parity)
 		if with_parity then
 			head = head .. char(band(o.parity or 0, 255))
 		end
+		if with_primers then
+			head = head .. char(band(rshift(o.primer or 0, 8), 255),
+				band(o.primer or 0, 255))
+		end
 		t[#t + 1] = head
 		t[#t + 1] = char(band(rshift(#s0, 24), 255), band(rshift(#s0, 16), 255),
 			band(rshift(#s0, 8), 255), band(#s0, 255))
@@ -376,11 +388,15 @@ local function serialize_rev(org, magic, with_parity)
 end
 
 local function serialize14(org)
-	return serialize_rev(org, MAGIC14, false)
+	return serialize_rev(org, MAGIC14, false, false)
 end
 
 local function serialize14n(org)
-	return serialize_rev(org, MAGIC14N, true)
+	return serialize_rev(org, MAGIC14N, true, false)
+end
+
+local function serialize14nb(org)
+	return serialize_rev(org, MAGIC_BANSHEE, true, true)
 end
 
 local function container_version(s)
@@ -445,12 +461,13 @@ local function be32(s, p)
 		+ byte(s, p + 2) * 0x100 + byte(s, p + 3)
 end
 
-local function deserialize_rev(s, with_parity)
-	local mlen = with_parity and 6 or 5
-	local hdr = with_parity and 12 or 11
-	local chdr = with_parity and 7 or 6
+local function deserialize_rev(s, with_parity, with_primers)
+	local mlen = with_primers and 13 or (with_parity and 6 or 5)
+	local hdr = mlen + 6
+	local chdr = 6 + (with_parity and 1 or 0) + (with_primers and 2 or 0)
 	if #s < hdr then return nil, "bad format" end
-	if sub(s, 1, mlen) ~= (with_parity and MAGIC14N or MAGIC14) then
+	if sub(s, 1, mlen) ~= (with_primers and MAGIC_BANSHEE
+		or (with_parity and MAGIC14N or MAGIC14)) then
 		return nil, "bad magic"
 	end
 	if byte(s, mlen + 1) ~= 1 then return nil, "unsupported flags" end
@@ -470,6 +487,7 @@ local function deserialize_rev(s, with_parity)
 		local units = byte(s, pos + 4)
 		local flags = byte(s, pos + 5)
 		local parity_byte = with_parity and byte(s, pos + 6) or 0
+		local primer_byte = with_primers and (byte(s, pos + 7) * 256 + byte(s, pos + 8)) or 0
 		pos = pos + chdr
 		if gene_raw < 16 or h < 3 or h > 12 or units < 1 then
 			return nil, "corrupt chromosome options"
@@ -496,6 +514,8 @@ local function deserialize_rev(s, with_parity)
 			gene_raw = gene_raw, mode = mode, h = h, units = units, flags = flags,
 			-- VIV14N stores the parity count; VIV14 infers it from the strand
 			parity = with_parity and parity_byte or r0.parity,
+			-- Banshee stores the barcode; earlier containers infer it
+			primer = with_primers and primer_byte or r0.primer,
 		}
 		gA[i], gB[i] = s0, s1
 	end
@@ -514,10 +534,10 @@ end
 local function deserialize(s)
 	if type(s) ~= "string" then return nil, "bad format" end
 	local rev = container_version(s)
-	if rev == 143 then return nil, "unsupported revision" end
-	if rev == 141 then return deserialize_rev(s, true) end
+	if rev == 143 then return deserialize_rev(s, true, true) end
+	if rev == 141 then return deserialize_rev(s, true, false) end
 	if rev == 14 then
-		local o = deserialize_rev(s, false)
+		local o = deserialize_rev(s, false, false)
 		if o then return o end
 		-- VIV1's generation high byte can be '4', so a VIV1 file may look
 		-- like a VIV14 one: fall back when the VIV14 structure is invalid
@@ -571,6 +591,7 @@ return {
 	serialize = serialize,
 	serialize14 = serialize14,
 	serialize14n = serialize14n,
+	serialize14nb = serialize14nb,
 	container_version = container_version,
 	deserialize = deserialize,
 	maintain = maintain,

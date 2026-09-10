@@ -51,7 +51,7 @@ static vivi_organism *create_wild_partner(const char **err)
 {
     int idx = (int)(get_seed() % 4);
     const int ids[2] = { 0, 1 };
-	const chr_opts co = { 1024, 0, 3, 4, 0, 0 };
+	const chr_opts co = { 1024, 0, 3, 4, 0, 0, 0 };
     const chr_opts cos[2] = { co, co };
     const uint8_t *data[2] = {
         (const uint8_t *)WILD_BRAINS[idx],
@@ -73,7 +73,7 @@ int main(void)
 
     // Базовые опции хромосом
     const int ids[2] = { 0, 1 };
-	const chr_opts co = { 1024, 0, 3, 4, 0, 0 };
+	const chr_opts co = { 1024, 0, 3, 4, 0, 0, 0 };
     const chr_opts cos[2] = { co, co };
 
     // Исходные данные (Адам)

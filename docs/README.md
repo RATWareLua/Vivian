@@ -14,14 +14,14 @@ then follow the two references:
 The Lua implementation in `framework/luau/` is the byte-format reference:
 for the same inputs the C port produces exactly the same bytes. Both
 sides are cross-checked in CI (`test/xcheck.c` vs `framework/luau/xcheck.lua`)
-for every revision, VIV1 through VIV14N.
+for every revision, VIV1 through VIV14NB4NSH33.
 
 ## Build and run
 
 ```bat
 cd framework\C
 build.bat lib        rem static library -> vivi.lib
-build.bat test       rem 480-check suite
+build.bat test       rem 515-check suite
 build.bat asan       rem the same suite under AddressSanitizer
 build.bat density    rem packing-density report
 build.bat xcheck     rem C<->Lua byte parity against framework/luau/xcheck.lua

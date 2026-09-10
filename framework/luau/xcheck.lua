@@ -131,6 +131,28 @@ local function scenario_chromosomes()
 	numline("chr_par4_alive", alive_par, rb4.ngenes)
 	local rec3 = chromosome.read(rb4)
 	if rec3 then line("chr_par4_recover", rec3) else print("chr_par4_recover fail") end
+
+	-- VIV14NB4NSH33: on-strand primer sites
+	local c8 = chromosome.encode(11, data,
+		{ gene_raw = 64, h = 3, units = 3, flags = 9, parity = 2, primer = 1234 })
+	if not c8 then print("chr_banshee fail") return end
+	line("chr_banshee", c8)
+	local r8 = chromosome.parse(c8)
+	if not r8 then print("chr_banshee_fields fail") return end
+	numline("chr_banshee_fields", r8.cen_version, r8.parity, r8.primer,
+		r8.primer_ok and 1 or 0, r8.ngenes, #r8.genes)
+
+	-- destroy the reverse site: data stays readable, access is lost
+	local pb = xor_byte(c8, #c8 - 23, 0x40)   -- first marker byte of the reverse site
+	local r9 = chromosome.parse(pb)
+	numline("chr_banshee_dark", r9.primer, r9.primer_ok and 1 or 0,
+		chromosome.amplifiable(r9) and 1 or 0)
+	local rr = chromosome.read(r9)
+	if rr then line("chr_banshee_dark_read", rr) else print("chr_banshee_dark_read fail") end
+
+	local c9 = chromosome.set_generation(c8, 11)
+	if not c9 then print("chr_banshee_gen11 fail") return end
+	line("chr_banshee_gen11", c9)
 end
 
 local function scenario_organisms()
@@ -203,6 +225,30 @@ local function scenario_organisms()
 		end
 	else
 		print("org_mutate_load fail")
+	end
+
+	-- VIV14NB4NSH33 container
+	local bopts = { o0, { gene_raw = 64, h = 3, units = 3, flags = 5, parity = 2, primer = 1234 } }
+	local bo = organism.new({
+		{ id = 0, data = d0, opts = bopts[1] },
+		{ id = 1, data = d1, opts = bopts[2] },
+	}, { max_gen = 40 })
+	if bo then
+		local bser = organism.serialize14nb(bo)
+		if bser then
+			line("org14nb", bser)
+			local bl = organism.deserialize(bser)
+			if bl then
+				line("org14nb_rt", organism.serialize14nb(bl))
+				numline("org14nb_opts", bl.chr_opts[2].parity, bl.chr_opts[2].primer)
+			else
+				print("org14nb_load fail")
+			end
+		else
+			print("org14nb fail")
+		end
+	else
+		print("org14nb_org fail")
 	end
 end
 

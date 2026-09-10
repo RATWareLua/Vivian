@@ -67,6 +67,8 @@ return.
 | `vivi_channel_opts` probabilities | 0 .. 1 |
 | Reed-Solomon geometry (`parity.h`) | `n + m <= 255`, shard length >= 1 |
 | `chr_opts.parity` (VIV14N) | 0..16; with parity, genes per chromosome `n + m <= 255` |
+| `chr_opts.primer` (Banshee) | 0 (off) or 1..65535; primer sites add 2 x 15 bytes |
+| `vivi_amp_opts` probabilities | 0 .. 1 (`p_access`, `p_cross`, `p_primer`) |
 
 ## Determinism and byte format
 
@@ -86,8 +88,8 @@ return.
   `(strand, rates, seed)` alone.
 - The C port is byte-compatible with the Lua reference (`framework/luau/`)
   for codec output, gene/chromosome encoding, damage patterns, cell
-  homologs and the `VIV1`, `VIV14` and `VIV14N` containers; CI enforces it
-  with the shared `xcheck` scenarios.
+  homologs and the `VIV1`, `VIV14`, `VIV14N` and `VIV14NB4NSH33`
+  containers; CI enforces it with the shared `xcheck` scenarios.
 
 ## Concurrency
 
@@ -133,8 +135,14 @@ you need concurrency.
   parity count can be inferred from a VIV14 container that happens to
   carry CEN2 strands. `chr_read` reconstructs erased data genes with
   Reed-Solomon; `chr_set_generation` keeps the centromere revision.
+- `VIV14NB4NSH33` adds a 15-byte primer site on each side of the
+  chromosome (barcode 1..65535, tagged, `chr_amplifiable`) and a barcode
+  per chromosome in the container; a damaged forward site unanchors the
+  layout, a damaged reverse site only loses physical access.
 - `organism_deserialize` accepts every revision; VIV1 writers stay
   byte-compatible with the Lua reference.
+- The Banshee pool model adds `p_primer`: on-strand site dropout drawn
+  only when non-zero, so earlier deterministic streams are unchanged.
 
 ## Freestanding checklist
 

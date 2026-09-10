@@ -76,6 +76,8 @@ vivi_sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-
 vivi_sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0.01 --p-cross 0.01 >> research_access.csv
 vivi_sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0.05 --p-cross 0.01 >> research_access.csv
 vivi_sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0.1 --p-cross 0.01 >> research_access.csv
+vivi_sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0 --p-cross 0.01 --p-primer 0.05 >> research_access.csv
+vivi_sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0.05 --p-cross 0.01 --p-primer 0.05 >> research_access.csv
 vivi_sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --header > research_library.csv
 vivi_sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --replicas 2 >> research_library.csv
 vivi_sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --replicas 3 >> research_library.csv

@@ -82,8 +82,12 @@ local function repair_homolog(dst, src)
 	local recD = chromosome.parse(dst)
 	if not recD or not recD.cen_ok then
 		-- centromere destroyed in dst: the head region (left telomere +
-		-- centromere) lives at fixed positions -- splice it wholesale
-		dst = sub(src, 1, tb + 18) .. sub(dst, tb + 19)
+		-- primer site + centromere) lives at fixed positions -- splice it
+		-- wholesale, with the source layout
+		local cen_bytes = (recS.cen_version == 2) and chromosome.CEN2BYTES
+			or chromosome.CENBYTES
+		local head = tb + (recS.primer_bytes or 0) + cen_bytes
+		dst = sub(src, 1, head) .. sub(dst, head + 1)
 		report.structural = report.structural + 1
 		recD = chromosome.parse(dst)
 	end

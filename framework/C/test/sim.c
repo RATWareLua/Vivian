@@ -36,13 +36,14 @@ static void usage(void)
 		"  --access       random-access mode: amplify one gene id per trial\n"
 		"  --p-access P   primer failure probability (default 0)\n"
 		"  --p-cross P    off-target amplification probability (default 0)\n"
+		"  --p-primer P   on-strand primer-site dropout (Banshee, default 0)\n"
 		"  --library      library mode: gene molecules + outer code\n"
 		"  --replicas K   copies of every molecule (default 1)\n"
 		"  --parity M     parity molecules over the data genes (default 0)\n"
 		"  --header       print the CSV header first\n"
 		"whole:   mode,p_sub,p_ins,p_del,p_drop,trials,success,wrong,failed,dropped,\n"
 		"         rate,avg_repaired,avg_structural,avg_dead,avg_anomaly\n"
-		"access:  mode,p_sub,p_ins,p_del,p_drop,p_access,p_cross,trials,success,\n"
+		"access:  mode,p_sub,p_ins,p_del,p_drop,p_access,p_cross,p_primer,trials,success,\n"
 		"         wrong,failed,dropped,cross,rate\n"
 		"library: mode,p_sub,p_ins,p_del,p_drop,replicas,parity,genes,trials,\n"
 		"         success,wrong,failed,dropped,rate,avg_present\n");
@@ -212,8 +213,8 @@ int main(int argc, char **argv)
 	uint32_t replicas = 1, parity_m = 0;
 	int have_size = 0, header = 0, access_mode = 0, library_mode = 0;
 	double p_sub = 0.0, p_ins = 0.0, p_del = 0.0, p_drop = 0.0;
-	double p_access = 0.0, p_cross = 0.0;
-	chr_opts co = { 1024, 0, 3, 4, 0 };
+	double p_access = 0.0, p_cross = 0.0, p_primer = 0.0;
+	chr_opts co = { 1024, 0, 3, 4, 0, 0, 0 };
 
 	for (int i = 1; i < argc; i++) {
 		const char *a = argv[i];
@@ -229,6 +230,7 @@ int main(int argc, char **argv)
 		else if (!strcmp(a, "--p-drop") && parse_double(v, &p_drop)) { i++; }
 		else if (!strcmp(a, "--p-access") && parse_double(v, &p_access)) { i++; }
 		else if (!strcmp(a, "--p-cross") && parse_double(v, &p_cross)) { i++; }
+		else if (!strcmp(a, "--p-primer") && parse_double(v, &p_primer)) { i++; }
 		else if (!strcmp(a, "--access")) { access_mode = 1; }
 		else if (!strcmp(a, "--library")) { library_mode = 1; }
 		else if (!strcmp(a, "--replicas") && parse_u32(v, &replicas) && replicas >= 1) { i++; }
@@ -331,7 +333,7 @@ int main(int argc, char **argv)
 			vivi_prng_init(&pick_rng, (uint64_t)seed + t + 1u);
 			int gid = pool.ids[vivi_prng_next(&pick_rng) % (uint32_t)pool.count];
 			vivi_amp_opts ao = { p_access, p_cross, seed + t + 1u,
-				{ p_sub, p_ins, p_del, 0.0, 0 } };
+				{ p_sub, p_ins, p_del, 0.0, 0 }, p_primer };
 			vivi_amp_result ar;
 			if (!vivi_pool_amplify(&ar, &pool, gid, &ao, &err)) {
 				fprintf(stderr, "vivi_sim: amplify: %s\n", err ? err : "?");
@@ -364,10 +366,10 @@ int main(int argc, char **argv)
 			return 1;
 		}
 		if (header)
-			fprintf(out, "mode,p_sub,p_ins,p_del,p_drop,p_access,p_cross,trials,"
+			fprintf(out, "mode,p_sub,p_ins,p_del,p_drop,p_access,p_cross,p_primer,trials,"
 				"success,wrong,failed,dropped,cross,rate\n");
-		fprintf(out, "access,%g,%g,%g,%g,%g,%g,%u,%lld,%lld,%lld,%lld,%lld,%.6f\n",
-			p_sub, p_ins, p_del, p_drop, p_access, p_cross, trials,
+		fprintf(out, "access,%g,%g,%g,%g,%g,%g,%g,%u,%lld,%lld,%lld,%lld,%lld,%.6f\n",
+			p_sub, p_ins, p_del, p_drop, p_access, p_cross, p_primer, trials,
 			success, wrong, failed, dropped, cross, (double)success / (double)trials);
 		if (out != stdout) fclose(out);
 		vivi_pool_free(&pool);

@@ -23,7 +23,7 @@ once, with its own migration.
 | `VIV1` | current format; stays readable forever |
 | `VIV14` | **this document**: versioned container, both homologs, `max_gen` |
 | `VIV14N` | parity genes as first-class chromosome members (outer code in the format) — **implemented** |
-| `VIV14NB4NSH33` | "Vivian Banshee": on-strand primer sites for physical random access; layout freeze |
+| `VIV14NB4NSH33` | "Vivian Banshee": on-strand primer sites for physical random access; **implemented, layout frozen** |
 
 Implementation policy from VIV14 on: **the C port is the reference**. The
 Lua implementation in `framework/luau/` ports every revision (VIV14 and
@@ -55,12 +55,14 @@ the same option validation.
 ## API
 
 ```c
-int  organism_container_version(const uint8_t *s, size_t len);  /* 0, 1 or 14 */
+int  organism_container_version(const uint8_t *s, size_t len);  /* 0, 1, 14, 141, 143 */
 
-/* VIV14 writer; organism_serialize() keeps writing VIV1 */
+/* VIV1/VIV14/VIV14N/Banshee writers; organism_serialize() keeps VIV1 */
 bool organism_serialize14(vivi_bytes *out, vivi_organism *o, const char **err);
+bool organism_serialize14n(vivi_bytes *out, vivi_organism *o, const char **err);
+bool organism_serialize14nb(vivi_bytes *out, vivi_organism *o, const char **err);
 
-/* reads both VIV1 and VIV14 */
+/* reads every revision */
 bool organism_deserialize(vivi_organism **out, const uint8_t *s, size_t len,
                           const char **err);
 ```
@@ -135,7 +137,46 @@ with a parity byte per chromosome; `organism_container_version` returns
 container carries CEN2 chromosomes, the parity count is inferred from the
 strand.
 
-## Out of scope for VIV14/VIV14N
+## VIV14NB4NSH33 "Vivian Banshee": on-strand primer sites
 
-- on-strand primers (`VIV14NB4NSH33`),
-- compression/checksums at the container level (genes already carry tags).
+The final revision adds a **primer site on each side of the chromosome**,
+so the molecule carries its own random-access address:
+
+```
+[TELOMERE][PRIMER_L][CEN1|CEN2][data genes][parity genes][PRIMER_R][TELOMERE]
+
+PRIMER = PMARK (3, bytes 0x55) + 16 codons (12)
+  raw block (8 bytes, tagged): barcode (2 BE, 1..65535) | reserved (2 = 0)
+  tag: Chaskey32 over the 4 raw bytes
+```
+
+- `chr_opts.primer` selects the barcode (0 = no sites, everything below
+  off). Both sites carry the same barcode; `chr_parse` validates each by
+  its tag and checks they match: `rec.primer`, `rec.primer_ok`,
+  `rec.primer_bytes`.
+- A damaged forward site loses the layout anchor, so the chromosome does
+  not parse (in the lab, a lost forward primer means the molecule cannot
+  be amplified). A damaged reverse site keeps the data readable but
+  `chr_amplifiable(rec)` turns false: physical access is lost while the
+  information is intact.
+- `chr_set_generation` rewrites the centromere in place and keeps both
+  primer sites byte for byte.
+- VIV1/VIV14/VIV14N chromosomes are unchanged: primer detection is
+  marker+tag based, and the telomere autodetect subtracts the
+  `PRIMERBYTES` block before dividing by the repeat size.
+
+Container: `organism_serialize14nb` writes the 13-byte
+`"VIV14NB4NSH33"` magic; `organism_container_version` returns `143`. The
+header stores parity **and** the 16-bit barcode per chromosome; earlier
+containers infer both from the strand when it carries CEN2/primer blocks.
+
+Access model: the pool layer (`vivi_pool_amplify`) gains `p_primer`, the
+probability that the on-strand site itself is hit: such a molecule is
+reported dropped even when the synthetic primer pair is available
+(`vivi_sim --access --p-primer`). Layout freeze: no further revisions are
+planned; any change after this point is a new format family.
+
+## Out of scope for every revision
+
+- compression/checksums at the container level (genes already carry tags),
+- error-correction beyond systematic Reed-Solomon and homology.

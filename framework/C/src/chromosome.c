@@ -8,6 +8,7 @@ static const char *chr_err_sink;
 
 static constexpr uint8_t TELUNIT[3] = { 0xF2, 0xE3, 0x0E }; /* 2x TTAGGG */
 static constexpr uint8_t CMARK[3] = { 0x6D, 0x6D, 0x6D };   /* CTGA x3 */
+static constexpr uint8_t PMARK[3] = { 0x55, 0x55, 0x55 };   /* AAAA x3 */
 
 static bool build_centromere(uint8_t out[CENBYTES], int chr_id, int flags, int ngenes,
 	int generation)
@@ -60,6 +61,42 @@ static bool build_centromere2(uint8_t out[CEN2BYTES], int chr_id, int flags, int
 	return true;
 }
 
+/* VIV14NB4NSH33 primer site: raw 4 bytes (barcode BE, zero, zero) plus a
+ * 32-bit tag = 8 bytes -> 16 codons -> 12 bytes after the marker */
+static bool build_primer(uint8_t out[PRIMERBYTES], int barcode)
+{
+	uint8_t raw[4] = { (uint8_t)((barcode >> 8) & 255), (uint8_t)(barcode & 255), 0, 0 };
+	uint32_t tag = genome_chaskey32(raw, 4);
+	uint8_t block[8] = { raw[0], raw[1], raw[2], raw[3],
+		(uint8_t)((tag >> 24) & 255), (uint8_t)((tag >> 16) & 255),
+		(uint8_t)((tag >> 8) & 255), (uint8_t)(tag & 255) };
+	int v[16];
+	(void)genome_values_from_bytes(v, 16, block, 8);
+	vivi_bytes packed = { 0 };
+	if (!genome_pack_codons(&packed, v, 16, nullptr)) return false;
+	memcpy(out, PMARK, 3);
+	memcpy(out + 3, packed.data, packed.len);
+	vivi_bytes_free(&packed);
+	return true;
+}
+
+/* parses a primer site at p; 0 is not a valid barcode */
+static bool parse_primer(const uint8_t *strand, size_t slen, size_t p, int *barcode)
+{
+	if (p + PRIMERBYTES > slen || memcmp(strand + p, PMARK, 3) != 0) return false;
+	int v[16];
+	if (!genome_unpack_codons(v, 16, strand + p + 3, slen - p - 3, nullptr)) return false;
+	uint8_t raw[4];
+	for (int i = 0; i < 4; i++) raw[i] = (uint8_t)(v[i * 2] * 16 + v[i * 2 + 1]);
+	uint32_t expected = ((uint32_t)(v[8] * 16 + v[9]) << 24)
+		| ((uint32_t)(v[10] * 16 + v[11]) << 16)
+		| ((uint32_t)(v[12] * 16 + v[13]) << 8)
+		| (uint32_t)(v[14] * 16 + v[15]);
+	if (genome_chaskey32(raw, 4) != expected) return false;
+	*barcode = raw[0] * 256 + raw[1];
+	return true;
+}
+
 bool chr_encode(vivi_bytes *out, int chr_id, const uint8_t *data, size_t len,
 	const chr_opts *opts, const char **err)
 {
@@ -77,6 +114,8 @@ bool chr_encode(vivi_bytes *out, int chr_id, const uint8_t *data, size_t len,
 	if (chr_id < 0 || chr_id > 255) { *err = "invalid chr_id (byte 0..255)"; return false; }
 	int parity = opts->parity;
 	if (parity < 0 || parity > 16) { *err = "invalid parity (integer 0..16)"; return false; }
+	int primer = opts->primer;
+	if (primer < 0 || primer > 65535) { *err = "invalid primer (integer 0..65535)"; return false; }
 
 	vivi_buf o = { 0 };
 	size_t ngenes = 0, npar = 0;
@@ -84,12 +123,20 @@ bool chr_encode(vivi_bytes *out, int chr_id, const uint8_t *data, size_t len,
 	vivi_bytes par_strands[16];
 	size_t gene_cap = 0;
 	size_t tb = (size_t)units * 3;
-	if (!vivi_buf_reserve(&o, tb * 2 + CEN2BYTES + len + len / 16 + 64)) {
+	if (!vivi_buf_reserve(&o, tb * 2 + 2 * PRIMERBYTES + CEN2BYTES + len + len / 16 + 64)) {
 		*err = "out of memory";
 		return false;
 	}
 	for (int u = 0; u < units; u++)
 		if (!vivi_buf_append(&o, TELUNIT, 3)) { *err = "out of memory"; goto fail; }
+	/* VIV14NB4NSH33: forward primer site right after the left telomere */
+	if (primer > 0) {
+		uint8_t pl[PRIMERBYTES];
+		if (!build_primer(pl, primer) || !vivi_buf_append(&o, pl, PRIMERBYTES)) {
+			*err = "out of memory";
+			goto fail;
+		}
+	}
 
 	/* pack data genes */
 	for (size_t off = 0; off < len; off += (size_t)gene_raw) {
@@ -182,6 +229,14 @@ bool chr_encode(vivi_bytes *out, int chr_id, const uint8_t *data, size_t len,
 			*err = "out of memory";
 			goto fail;
 		}
+	/* VIV14NB4NSH33: reverse primer site right before the right telomere */
+	if (primer > 0) {
+		uint8_t pr[PRIMERBYTES];
+		if (!build_primer(pr, primer) || !vivi_buf_append(&o, pr, PRIMERBYTES)) {
+			*err = "out of memory";
+			goto fail;
+		}
+	}
 	for (int u = 0; u < units; u++)
 		if (!vivi_buf_append(&o, TELUNIT, 3)) { *err = "out of memory"; goto fail; }
 	for (size_t i = 0; i < ngenes; i++) vivi_bytes_free(&gene_strands[i]);
@@ -269,8 +324,14 @@ bool chr_parse(chr_record *out, const uint8_t *strand, size_t slen, int units_hi
 	size_t pc = find_bytes(strand, slen, CMARK, 3, 0);
 	cen_fields fdet;
 	memset(&fdet, 0, sizeof(fdet));
-	if (pc > 0 && pc % 3 == 0 && cen_parse(strand, slen, pc, &fdet))
-		units = (int)(pc / 3);
+	if (pc > 0 && cen_parse(strand, slen, pc, &fdet)) {
+		/* a valid primer site shifts the centromere by PRIMERBYTES */
+		size_t cstart = pc;
+		int bc = 0;
+		if (pc >= PRIMERBYTES && parse_primer(strand, slen, pc - PRIMERBYTES, &bc))
+			cstart = pc - PRIMERBYTES;
+		if (cstart % 3 == 0) units = (int)(cstart / 3);
+	}
 	size_t tb = (size_t)units * 3;
 	if (slen < 2 * tb + CENBYTES) { *err = "chromosome too short"; return false; }
 	int telo_ok = (memcmp(strand, TELUNIT, 3) == 0);
@@ -281,7 +342,13 @@ bool chr_parse(chr_record *out, const uint8_t *strand, size_t slen, int units_hi
 	int cen_ok = 0;
 	int id = 0, flags = 0, ngenes = 0, generation = 0, parity = 0, cen_version = 0;
 	size_t rawlen = 0;
+	int primer = 0, primer_ok = 0, primer_bytes = 0;
+	/* VIV14NB4NSH33: a valid left primer site shifts the centromere */
 	size_t cenp = tb;
+	if (tb + PRIMERBYTES <= slen && parse_primer(strand, slen, tb, &primer)) {
+		primer_bytes = PRIMERBYTES;
+		cenp = tb + PRIMERBYTES;
+	}
 	cen_fields f;
 	memset(&f, 0, sizeof(f));
 	int cv = cen_parse(strand, slen, cenp, &f);
@@ -299,12 +366,18 @@ bool chr_parse(chr_record *out, const uint8_t *strand, size_t slen, int units_hi
 		parity = f.parity;
 		rawlen = f.rawlen;
 	}
+	/* the reverse site must exist and carry the same barcode */
+	if (primer > 0 && cenp + tb + PRIMERBYTES <= slen) {
+		int rp = 0;
+		if (parse_primer(strand, slen, slen - tb - PRIMERBYTES, &rp) && rp == primer)
+			primer_ok = 1;
+	}
 	genome_gene *genes = nullptr;
 	size_t gene_count = 0;
 	if (cen_ok) {
 		size_t cen_bytes = (cen_version == 2) ? CEN2BYTES : CENBYTES;
-		size_t interior_off = tb + cen_bytes;
-		size_t interior_len = slen - interior_off - tb;
+		size_t interior_off = cenp + cen_bytes;
+		size_t interior_len = slen - interior_off - tb - (size_t)primer_bytes;
 		genome_scan_result res;
 		if (!genome_gene_scan(&res, strand + interior_off, interior_len, err)) {
 			chr_record_free(out);
@@ -323,6 +396,9 @@ bool chr_parse(chr_record *out, const uint8_t *strand, size_t slen, int units_hi
 	out->parity = parity;
 	out->rawlen = rawlen;
 	out->cen_version = cen_version;
+	out->primer = primer;
+	out->primer_ok = primer_ok;
+	out->primer_bytes = primer_bytes;
 	out->telomere_ok = telo_ok;
 	out->cen_ok = cen_ok;
 	out->telomere_bytes = tb;
@@ -492,6 +568,7 @@ bool chr_set_generation(vivi_bytes *out, const uint8_t *strand, size_t slen, int
 		return false;
 	}
 	size_t tb = rec.telomere_bytes;
+	size_t pb = (size_t)rec.primer_bytes;
 	uint8_t cen[CEN2BYTES];
 	size_t cen_bytes;
 	if (rec.cen_version == 2) {
@@ -516,9 +593,10 @@ bool chr_set_generation(vivi_bytes *out, const uint8_t *strand, size_t slen, int
 		*err = "out of memory";
 		return false;
 	}
-	memcpy(ns, strand, tb);
-	memcpy(ns + tb, cen, cen_bytes);
-	memcpy(ns + tb + cen_bytes, strand + tb + cen_bytes, slen - tb - cen_bytes);
+	memcpy(ns, strand, tb + pb);
+	memcpy(ns + tb + pb, cen, cen_bytes);
+	memcpy(ns + tb + pb + cen_bytes, strand + tb + pb + cen_bytes,
+		slen - tb - pb - cen_bytes);
 	chr_record_free(&rec);
 	out->data = ns;
 	out->len = slen;

@@ -33,7 +33,7 @@ static void scenario_chromosomes(void)
 	payload_seed(data, sizeof(data), 0xC0FFEE01u);
 	hexline("payload200", data, sizeof(data));
 
-	chr_opts o1 = { 64, 0, 3, 3, 9, 0 };   /* gene_raw, codon, h, units, flags, parity */
+	chr_opts o1 = { 64, 0, 3, 3, 9, 0, 0 };   /* gene_raw, codon, h, units, flags, parity */
 	vivi_bytes c1 = { 0 };
 	if (!chr_encode(&c1, 7, data, sizeof(data), &o1, nullptr)) {
 		printf("chr_dense fail\n");
@@ -41,7 +41,7 @@ static void scenario_chromosomes(void)
 	}
 	hexline("chr_dense", c1.data, c1.len);
 
-	chr_opts o2 = { 64, 1, 3, 3, 9, 0 };
+	chr_opts o2 = { 64, 1, 3, 3, 9, 0, 0 };
 	vivi_bytes c2 = { 0 };
 	if (!chr_encode(&c2, 7, data, sizeof(data), &o2, nullptr)) {
 		printf("chr_codon fail\n");
@@ -56,7 +56,7 @@ static void scenario_chromosomes(void)
 	}
 	hexline("chr_gen5", c3.data, c3.len);
 
-	chr_opts o4 = { 64, 0, 3, 3, 9, 2 };
+	chr_opts o4 = { 64, 0, 3, 3, 9, 2, 0 };
 	vivi_bytes c4 = { 0 };
 	if (!chr_encode(&c4, 7, data, sizeof(data), &o4, nullptr)) {
 		printf("chr_par2 fail\n");
@@ -64,7 +64,7 @@ static void scenario_chromosomes(void)
 	}
 	hexline("chr_par2", c4.data, c4.len);
 
-	chr_opts o5 = { 48, 1, 3, 3, 9, 3 };
+	chr_opts o5 = { 48, 1, 3, 3, 9, 3, 0 };
 	vivi_bytes c5 = { 0 };
 	if (!chr_encode(&c5, 8, data, sizeof(data), &o5, nullptr)) {
 		printf("chr_par3_codon fail\n");
@@ -129,7 +129,7 @@ static void scenario_chromosomes(void)
 	hexline("chr_par2_gen7", c6.data, c6.len);
 
 	/* parity-only reconstruction: erase every data gene, keep the parity */
-	chr_opts o7 = { 64, 0, 3, 3, 9, 4 };
+	chr_opts o7 = { 64, 0, 3, 3, 9, 4, 0 };
 	vivi_bytes c7 = { 0 };
 	if (!chr_encode(&c7, 9, data, sizeof(data), &o7, nullptr)) {
 		printf("chr_par4 fail\n");
@@ -156,6 +156,50 @@ static void scenario_chromosomes(void)
 		vivi_dealloc(broken2);
 	}
 
+	/* VIV14NB4NSH33: on-strand primer sites */
+	chr_opts o8 = { 64, 0, 3, 3, 9, 2, 1234 };
+	vivi_bytes c8 = { 0 };
+	if (!chr_encode(&c8, 11, data, sizeof(data), &o8, nullptr)) {
+		printf("chr_banshee fail\n");
+		return;
+	}
+	hexline("chr_banshee", c8.data, c8.len);
+	chr_record r8;
+	if (!chr_parse(&r8, c8.data, c8.len, -1, nullptr)) {
+		printf("chr_banshee_fields fail\n");
+		return;
+	}
+	printf("chr_banshee_fields %d %d %d %d %d %d\n", r8.cen_version, r8.parity,
+		r8.primer, r8.primer_ok, r8.ngenes, (int)r8.gene_count);
+	chr_record_free(&r8);
+
+	/* destroy the reverse site: data stays readable, access is lost */
+	uint8_t *pb = vivi_alloc(c8.len);
+	if (pb) {
+		memcpy(pb, c8.data, c8.len);
+		pb[c8.len - 24] ^= 0x40;   /* first marker byte of the reverse site */
+		chr_record r9;
+		(void)chr_parse(&r9, pb, c8.len, -1, nullptr);
+		printf("chr_banshee_dark %d %d %d\n", r9.primer, r9.primer_ok,
+			chr_amplifiable(&r9) ? 1 : 0);
+		vivi_bytes rr = { 0 };
+		if (chr_read(&rr, &r9, nullptr)) hexline("chr_banshee_dark_read", rr.data, rr.len);
+		else printf("chr_banshee_dark_read fail\n");
+		vivi_bytes_free(&rr);
+		chr_record_free(&r9);
+		vivi_dealloc(pb);
+	}
+
+	vivi_bytes c9 = { 0 };
+	if (!chr_set_generation(&c9, c8.data, c8.len, 11, nullptr)) {
+		printf("chr_banshee_gen11 fail\n");
+		return;
+	}
+	hexline("chr_banshee_gen11", c9.data, c9.len);
+
+	vivi_bytes_free(&c8);
+	vivi_bytes_free(&c9);
+
 	vivi_bytes_free(&c1);
 	vivi_bytes_free(&c2);
 	vivi_bytes_free(&c3);
@@ -174,7 +218,7 @@ static void scenario_organisms(void)
 	payload_seed(e1, sizeof(e1), 4);
 
 	int ids[2] = { 0, 1 };
-	chr_opts opts[2] = { { 64, 0, 3, 3, 0, 0 }, { 64, 0, 3, 3, 5, 2 } };
+	chr_opts opts[2] = { { 64, 0, 3, 3, 0, 0, 0 }, { 64, 0, 3, 3, 5, 2, 0 } };
 	const uint8_t *datas[2] = { d0, d1 };
 	size_t lens[2] = { sizeof(d0), sizeof(d1) };
 	vivi_organism *org = nullptr;
@@ -266,6 +310,35 @@ static void scenario_organisms(void)
 	vivi_bytes_free(&s14n);
 	vivi_bytes_free(&sd);
 	vivi_bytes_free(&sr);
+
+	/* VIV14NB4NSH33 container */
+	chr_opts bopts[2] = { { 64, 0, 3, 3, 0, 0, 0 }, { 64, 0, 3, 3, 5, 2, 1234 } };
+	vivi_organism *bo = nullptr;
+	if (organism_new(&bo, ids, bopts, datas, lens, 2, 40, nullptr)) {
+		vivi_bytes bser = { 0 };
+		if (organism_serialize14nb(&bser, bo, nullptr)) {
+			hexline("org14nb", bser.data, bser.len);
+			vivi_organism *bl = nullptr;
+			if (organism_deserialize(&bl, bser.data, bser.len, nullptr)) {
+				vivi_bytes brt = { 0 };
+				(void)organism_serialize14nb(&brt, bl, nullptr);
+				hexline("org14nb_rt", brt.data, brt.len);
+				printf("org14nb_opts %d %d\n", bl->chr_opts[1].parity,
+					bl->chr_opts[1].primer);
+				vivi_bytes_free(&brt);
+				organism_free(bl);
+			} else {
+				printf("org14nb_load fail\n");
+			}
+			vivi_bytes_free(&bser);
+		} else {
+			printf("org14nb fail\n");
+		}
+		organism_free(bo);
+	} else {
+		printf("org14nb_org fail\n");
+	}
+
 	organism_free(org);
 }
 

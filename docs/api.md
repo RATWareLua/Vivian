@@ -191,6 +191,9 @@ void genome_set_base(uint8_t *strand, size_t n, size_t idx, int digit);
 
 Layout: `[telomere][centromere][gene 0]..[gene n-1][telomere]`.
 `CENBYTES` (18) is the centromere size: marker 3 + 20 codons 15.
+`CEN2BYTES` (27) is the VIV14N centromere; with `primer > 0` the Banshee
+layout adds a `PRIMERBYTES` (15) site on each side:
+`[telomere][primer][centromere][genes][primer][telomere]`.
 
 ```c
 typedef struct {
@@ -200,6 +203,7 @@ typedef struct {
     int units;      /* telomere repeat units, 0 = default 4 (>= 1) */
     int flags;      /* user byte, stored in the centromere */
     int parity;     /* VIV14N: parity genes appended, 0..16 (0 = off) */
+    int primer;     /* VIV14NB4NSH33: on-strand barcode 1..65535 (0 = off) */
 } chr_opts;
 
 typedef struct {
@@ -207,6 +211,9 @@ typedef struct {
     int parity;          /* VIV14N: number of parity genes */
     size_t rawlen;       /* VIV14N: true payload length */
     int cen_version;     /* 1 = VIV1/VIV14 centromere, 2 = VIV14N */
+    int primer;          /* VIV14NB4NSH33: barcode, 0 = no primer sites */
+    int primer_ok;       /* both sites valid and matching */
+    int primer_bytes;    /* PRIMERBYTES when the forward site anchors layout */
     int telomere_ok, cen_ok;
     size_t telomere_bytes;
     genome_gene *genes;    /* owned; release with chr_record_free */
@@ -223,6 +230,7 @@ void chr_record_free(chr_record *r);
 bool chr_read(vivi_bytes *out, const chr_record *rec, const char **err);
 bool chr_set_generation(vivi_bytes *out, const uint8_t *strand, size_t slen,
                         int generation, const char **err);  /* 0..65535 */
+bool chr_amplifiable(const chr_record *rec);                /* static inline */
 ```
 
 - The number of genes is bounded by the one-byte gene id: **256 per
@@ -234,9 +242,12 @@ bool chr_set_generation(vivi_bytes *out, const uint8_t *strand, size_t slen,
   valid; then concatenates the payloads. With `parity > 0` (VIV14N) it
   reconstructs missing data genes from the parity genes with the
   Reed-Solomon code and only fails when fewer than `n` genes survive.
+- Primers (Banshee) are physical: `chr_read` does not need them, but
+  `chr_amplifiable` is false when the barcode is set and either site is
+  damaged (`primer == 0` strands are amplifiable as before).
 - `chr_set_generation` re-stamps the centromere generation, preserving the
-  strand length byte for byte and keeping the centromere revision (CEN2
-  stays CEN2).
+  strand length byte for byte, the centromere revision (CEN2 stays CEN2)
+  and both primer sites.
 
 ---
 
@@ -396,7 +407,8 @@ bool organism_cross(vivi_organism **out, vivi_organism *pa, vivi_organism *pb,
 bool organism_serialize(vivi_bytes *out, vivi_organism *o, const char **err);   /* VIV1 */
 bool organism_serialize14(vivi_bytes *out, vivi_organism *o, const char **err); /* VIV14 */
 bool organism_serialize14n(vivi_bytes *out, vivi_organism *o, const char **err);/* VIV14N */
-int  organism_container_version(const uint8_t *s, size_t len);  /* 0, 1, 14, 141 */
+bool organism_serialize14nb(vivi_bytes *out, vivi_organism *o, const char **err);/* Banshee */
+int  organism_container_version(const uint8_t *s, size_t len);  /* 0, 1, 14, 141, 143 */
 bool organism_deserialize(vivi_organism **out, const uint8_t *s, size_t len,
                           const char **err);   /* reads all revisions */
 ```
@@ -434,6 +446,11 @@ The `VIV14N` container is the VIV14 layout with the `"VIV14N"` magic and
 one extra parity byte per chromosome (`organism_container_version` returns
 141); the payload bytes themselves live in CEN2 chromosomes as described
 in `docs/viv14.md`.
+
+The `VIV14NB4NSH33` container uses the 13-byte magic and a 2-byte barcode
+per chromosome in addition to parity (`organism_container_version` returns
+143). Deserialization of VIV14/VIV14N infers the parity count and barcode
+from the strand when it carries CEN2/primer blocks.
 
 ### Population maintenance
 
@@ -502,6 +519,7 @@ typedef struct {
     double p_cross;        /* off-target amplification probability */
     uint32_t seed;
     vivi_channel_opts ch;  /* errors on the amplicon */
+    double p_primer;       /* Banshee: on-strand primer-site dropout */
 } vivi_amp_opts;
 
 typedef struct {
@@ -517,10 +535,11 @@ bool vivi_pool_amplify(vivi_amp_result *out, const vivi_pool *pool, int id,
   genes); primer sequences are external, as in a real primer database.
 - `vivi_pool_add_chromosome` copies every gene with a valid tag.
 - `vivi_pool_amplify` models one PCR: `p_access` gives no product,
-  `p_cross` may return an off-target member (reported by `id != requested`,
-  the caller must reject it), the amplicon then passes through the ordinary
-  channel. The amplicon seed is derived from the amplification seed and the
-  chosen member.
+  `p_primer > 0` adds an on-strand primer-site dropout draw (non-zero rates
+  only, so earlier streams are unchanged), `p_cross` may return an
+  off-target member (reported by `id != requested`, the caller must reject
+  it), the amplicon then passes through the ordinary channel. The amplicon
+  seed is derived from the amplification seed and the chosen member.
 - An unknown target id fails with `"target not in pool"`.
 
 ---

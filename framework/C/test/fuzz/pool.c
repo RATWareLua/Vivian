@@ -13,7 +13,7 @@ static void seed_once(void)
 	if (g_seed_done) return;
 	g_seed_done = 1;
 	static const uint8_t payload[] = "pool fuzz seed payload, several genes long";
-	chr_opts co = { 16, 0, 3, 4, 0 };
+	chr_opts co = { 16, 0, 3, 4, 0, 0, 0 };
 	(void)chr_encode(&g_seed, 1, payload, sizeof(payload) - 1, &co, nullptr);
 	atexit(seed_cleanup);
 }
@@ -38,7 +38,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
 	seed_once();
 	vivi_amp_opts ao = { 0.05, 0.01, (uint32_t)size + 1u,
-		{ 0.01, 0.001, 0.001, 0.01, 2u } };
+		{ 0.01, 0.001, 0.001, 0.01, 2u }, 0.01 };
 	if (g_seed.data) amplify_one(g_seed.data, g_seed.len, &ao);
 	amplify_one(data, size, &ao);
 	return 0;

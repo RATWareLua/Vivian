@@ -57,9 +57,12 @@ cell_report organism_checkpoint(vivi_organism *o);
 [[nodiscard]] bool organism_serialize14(vivi_bytes *out, vivi_organism *o, const char **err);
 /* VIV14N writer: as VIV14 plus the per-chromosome parity count */
 [[nodiscard]] bool organism_serialize14n(vivi_bytes *out, vivi_organism *o, const char **err);
-/* container revision: 1 (VIV1), 14 (VIV14), 141 (VIV14N), 143 (reserved), 0 */
+/* VIV14NB4NSH33 writer ("Banshee"): parity plus the per-chromosome
+ * on-strand primer barcode stored in the header */
+[[nodiscard]] bool organism_serialize14nb(vivi_bytes *out, vivi_organism *o, const char **err);
+/* container revision: 1 (VIV1), 14 (VIV14), 141 (VIV14N), 143 (Banshee), 0 */
 int organism_container_version(const uint8_t *s, size_t len);
-/* reads VIV1, VIV14 and VIV14N containers */
+/* reads VIV1, VIV14, VIV14N and VIV14NB4NSH33 containers */
 [[nodiscard]] bool organism_deserialize(vivi_organism **out, const uint8_t *s, size_t len, const char **err);
 cell_report organism_maintain(vivi_organism **organisms, size_t count,
 	const vivi_organism *stem);

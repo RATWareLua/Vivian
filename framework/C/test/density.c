@@ -49,7 +49,7 @@ static const struct { fill_fn fill; const char *name; } PATS[] = {
 
 static void codec_table(void)
 {
-	const size_t sizes[] = { 64, 256, 1024, 4096, 16384, 65536 };
+	const size_t sizes[] = { 64, 256, 1024, 4096, 16384, 65536, 0 };
 	printf("== codec only (dna_encode, h=3, gc_eps=0.05): bits/nt ==\n");
 	printf("%-8s", "bytes");
 	for (size_t p = 0; p < 3; p++) printf("%10s", PATS[p].name);
@@ -80,7 +80,7 @@ static void chromosome_row(size_t n, fill_fn fill, const char *pname)
 {
 	uint8_t *data = vivi_alloc(n);
 	fill(data, n);
-	chr_opts co = { 1024, 0, 3, 4, 0 };
+	chr_opts co = { 1024, 0, 3, 4, 0, 0, 0 };
 	const char *err = nullptr;
 	vivi_bytes strand = { 0 };
 	if (!chr_encode(&strand, 1, data, n, &co, &err)) {
@@ -118,7 +118,7 @@ static void chromosome_row(size_t n, fill_fn fill, const char *pname)
 
 static void chromosome_table(void)
 {
-	const size_t sizes[] = { 64, 256, 1024, 4096, 16384, 65536 };
+	const size_t sizes[] = { 64, 256, 1024, 4096, 16384, 65536, 0 };
 	printf("== full chromosome (gene_raw=1024, dense, h=3, units=4) ==\n");
 	for (size_t si = 0; si < sizeof(sizes) / sizeof(sizes[0]); si++) {
 		size_t n = sizes[si];

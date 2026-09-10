@@ -95,8 +95,10 @@ bool cell_repair_homolog(vivi_bytes *out, const uint8_t *dst, size_t dlen,
 	}
 	if (!recD.cen_ok) {
 		/* centromere destroyed in dst: the head region lives at fixed
-		 * positions -- splice it wholesale from the healthy homolog */
-		size_t head = tb + CENBYTES;
+		 * positions -- splice it wholesale from the healthy homolog,
+		 * with the source layout (primer site + centromere revision) */
+		size_t cen_bytes = (recS.cen_version == 2) ? CEN2BYTES : CENBYTES;
+		size_t head = tb + (size_t)recS.primer_bytes + cen_bytes;
 		uint8_t *nc = vivi_alloc(clen);
 		if (!nc) {
 			vivi_dealloc(cur);

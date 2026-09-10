@@ -89,10 +89,11 @@ bool vivi_pool_amplify(vivi_amp_result *out, const vivi_pool *pool, int id,
 	memset(out, 0, sizeof(*out));
 	out->id = -1;
 	if (!pool || pool->count == 0) { *err = "empty pool"; return false; }
-	vivi_amp_opts def = { 0.0, 0.0, 0, { 0.0, 0.0, 0.0, 0.0, 0 } };
+	vivi_amp_opts def = { 0.0, 0.0, 0, { 0.0, 0.0, 0.0, 0.0, 0 }, 0.0 };
 	if (!opts) opts = &def;
 	if (!(opts->p_access >= 0.0 && opts->p_access <= 1.0)
-		|| !(opts->p_cross >= 0.0 && opts->p_cross <= 1.0)) {
+		|| !(opts->p_cross >= 0.0 && opts->p_cross <= 1.0)
+		|| !(opts->p_primer >= 0.0 && opts->p_primer <= 1.0)) {
 		*err = "invalid probability";
 		return false;
 	}
@@ -103,6 +104,13 @@ bool vivi_pool_amplify(vivi_amp_result *out, const vivi_pool *pool, int id,
 	vivi_prng rng;
 	vivi_prng_init(&rng, opts->seed);
 	if (vivi_prng_chance(&rng, opts->p_access)) {
+		out->read.dropped = 1;
+		return true;
+	}
+	/* Banshee: the molecule's own primer site may have been hit; the
+	 * draw happens only when the rate is non-zero, keeping the pinned
+	 * stream of earlier revisions unchanged */
+	if (opts->p_primer > 0.0 && vivi_prng_chance(&rng, opts->p_primer)) {
 		out->read.dropped = 1;
 		return true;
 	}

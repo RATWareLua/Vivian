@@ -4,9 +4,9 @@
  * amplifies one address with a specific primer pair. This module models
  * that: a vivi_pool stores gene strands (each a self-contained molecule),
  * and vivi_pool_amplify() returns the damaged amplicon of one gene id,
- * including primer dropout and off-target cross-talk. Primer sequences
- * themselves live in the primer database, exactly as in the lab; on-strand
- * primer sites are planned for the VIV14 revision.
+ * including primer dropout and off-target cross-talk. From
+ * VIV14NB4NSH33 the primer sites live on the strand itself; p_primer
+ * models their dropout on top of the pool-level p_access.
  */
 #ifndef POOL_H
 #define POOL_H
@@ -35,6 +35,7 @@ typedef struct {
 	double p_cross;        /* probability the product is an off-target member */
 	uint32_t seed;         /* rng seed; 0 behaves as 1 */
 	vivi_channel_opts ch;  /* amplification/sequencing errors on the amplicon */
+	double p_primer;       /* VIV14NB4NSH33: on-strand primer-site dropout */
 } vivi_amp_opts;
 
 typedef struct {

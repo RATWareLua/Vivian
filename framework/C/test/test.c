@@ -296,7 +296,7 @@ static void test_chromosome(void)
 	uint8_t data[500];
 	rands(data, 500);
 	vivi_bytes chr;
-	chr_opts co = { 1024, 0, 3, 4, 0, 0 };
+	chr_opts co = { 1024, 0, 3, 4, 0, 0, 0 };
 	CHECK(chr_encode(&chr, 1, data, 500, &co, &err), "chr encode");
 	chr_record rec;
 	CHECK(chr_parse(&rec, chr.data, chr.len, -1, &err), "chr parse");
@@ -313,7 +313,7 @@ static void test_chromosome(void)
 	/* multi-gene */
 	uint8_t big[5000];
 	rands(big, 5000);
-	chr_opts co2 = { 1024, 0, 3, 4, 0, 0 };
+	chr_opts co2 = { 1024, 0, 3, 4, 0, 0, 0 };
 	(void)chr_encode(&chr, 2, big, 5000, &co2, &err);
 	(void)chr_parse(&rec, chr.data, chr.len, -1, &err);
 	CHECK(rec.ngenes == 5, "5 genes for 5000B @1024");
@@ -438,14 +438,14 @@ static void test_pool(void)
 	const char *err;
 	uint8_t payload[600];
 	rands(payload, sizeof(payload));
-	chr_opts co = { 64, 0, 3, 4, 0, 0 };
+	chr_opts co = { 64, 0, 3, 4, 0, 0, 0 };
 	vivi_bytes chr = { 0 };
 	CHECK(chr_encode(&chr, 0, payload, sizeof(payload), &co, &err), "pool chromosome");
 	vivi_pool pool = { 0 };
 	CHECK(vivi_pool_add_chromosome(&pool, chr.data, chr.len, &err), "pool add chromosome");
 	CHECK(pool.count == 10, "pool holds every gene");
 
-	vivi_amp_opts ao = { 0.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0 } };
+	vivi_amp_opts ao = { 0.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0 }, 0.0 };
 	vivi_amp_result a1, a2;
 	CHECK(vivi_pool_amplify(&a1, &pool, 3, &ao, &err), "pool amplify");
 	CHECK(vivi_pool_amplify(&a2, &pool, 3, &ao, &err), "pool amplify again");
@@ -461,11 +461,16 @@ static void test_pool(void)
 	vivi_bytes_free(&a1.read.strand);
 	vivi_bytes_free(&a2.read.strand);
 
-	vivi_amp_opts fail = { 1.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0 } };
+	vivi_amp_opts fail = { 1.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0 }, 0.0 };
 	CHECK(vivi_pool_amplify(&a1, &pool, 3, &fail, &err), "pool primer failure");
 	CHECK(a1.read.dropped && a1.id == -1, "pool dropped product");
 
-	vivi_amp_opts xtalk = { 0.0, 1.0, 7, { 0.0, 0.0, 0.0, 0.0, 0 } };
+	/* VIV14NB4NSH33: the on-strand primer site itself can be hit */
+	vivi_amp_opts pdark = { 0.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0 }, 1.0 };
+	CHECK(vivi_pool_amplify(&a1, &pool, 3, &pdark, &err), "pool primer-site dropout");
+	CHECK(a1.read.dropped && a1.id == -1, "pool primer-site dark");
+
+	vivi_amp_opts xtalk = { 0.0, 1.0, 7, { 0.0, 0.0, 0.0, 0.0, 0 }, 0.0 };
 	CHECK(vivi_pool_amplify(&a1, &pool, 3, &xtalk, &err), "pool cross-talk");
 	CHECK(a1.id >= 0 && a1.id != 3, "pool off-target id");
 	vivi_bytes_free(&a1.read.strand);
@@ -559,7 +564,7 @@ static void test_cells(void)
 {
 	uint8_t cdata[3000];
 	rands(cdata, 3000);
-	chr_opts co = { 1024, 0, 3, 4, 0, 0 };
+	chr_opts co = { 1024, 0, 3, 4, 0, 0, 0 };
 	const char *err;
 	vivi_cell *c;
 	(void)cell_new(&c, 1, cdata, 3000, &co, &ERR);
@@ -642,7 +647,7 @@ static void test_cells(void)
 /* ---------- organisms ---------- */
 static void test_organisms(void)
 {
-	chr_opts o1 = { 1024, 0, 3, 4, 0, 0 };
+	chr_opts o1 = { 1024, 0, 3, 4, 0, 0, 0 };
 	int ids[2] = { 0, 1 };
 	chr_opts opts[2] = { o1, o1 };
 	uint8_t d0[300], d1[200];
@@ -797,7 +802,7 @@ static void test_organisms(void)
 static void test_viv14(void)
 {
 	const char *err;
-	chr_opts o1 = { 1024, 0, 3, 4, 0, 0 };
+	chr_opts o1 = { 1024, 0, 3, 4, 0, 0, 0 };
 	int ids[1] = { 0 };
 	uint8_t d0[300];
 	rands(d0, 300);
@@ -881,7 +886,7 @@ static void test_viv14n(void)
 	const char *err;
 	uint8_t payload[700];
 	rands(payload, sizeof(payload));
-	chr_opts co = { 128, 0, 3, 4, 0, 2 };   /* 6 data genes + 2 parity genes */
+	chr_opts co = { 128, 0, 3, 4, 0, 2, 0 };   /* 6 data genes + 2 parity genes */
 	vivi_bytes chr = { 0 };
 	CHECK(chr_encode(&chr, 1, payload, sizeof(payload), &co, &err), "viv14n encode");
 	chr_record rec;
@@ -918,7 +923,7 @@ static void test_viv14n(void)
 	vivi_bytes_free(&back);
 
 	/* the same corruption without parity is unrecoverable */
-	chr_opts plain = { 128, 0, 3, 4, 0, 0 };
+	chr_opts plain = { 128, 0, 3, 4, 0, 0, 0 };
 	vivi_bytes chr0 = { 0 };
 	CHECK(chr_encode(&chr0, 1, payload, sizeof(payload), &plain, &err), "viv14n plain encode");
 	chr_record rec0;
@@ -969,6 +974,120 @@ static void test_viv14n(void)
 	vivi_bytes_free(&chr);
 }
 
+/* ---------- VIV14NB4NSH33 Banshee primer sites ---------- */
+static void test_banshee(void)
+{
+	const char *err;
+	uint8_t payload[700];
+	rands(payload, sizeof(payload));
+	chr_opts co = { 128, 0, 3, 4, 7, 2, 1234 };   /* parity 2 + barcode 1234 */
+	vivi_bytes chr = { 0 };
+	CHECK(chr_encode(&chr, 5, payload, sizeof(payload), &co, &err), "banshee encode");
+	chr_record rec;
+	CHECK(chr_parse(&rec, chr.data, chr.len, -1, &err), "banshee parse");
+	CHECK(rec.cen_ok && rec.cen_version == 2 && rec.parity == 2, "banshee cen2 parity");
+	CHECK(rec.primer == 1234 && rec.primer_ok && rec.primer_bytes == PRIMERBYTES,
+		"banshee primer sites");
+	CHECK(rec.rawlen == sizeof(payload) && rec.ngenes == 8, "banshee header");
+	CHECK(chr_amplifiable(&rec), "banshee amplifiable");
+	vivi_bytes back = { 0 };
+	CHECK(chr_read(&back, &rec, &err) && back.len == sizeof(payload)
+		&& memcmp(back.data, payload, sizeof(payload)) == 0, "banshee roundtrip");
+	vivi_bytes_free(&back);
+	chr_record_free(&rec);
+
+	/* destroying the reverse site: data stays readable, access is lost */
+	uint8_t *prb = vivi_alloc(chr.len);
+	CHECK(prb != nullptr, "banshee scratch");
+	memcpy(prb, chr.data, chr.len);
+	prb[chr.len - 12 - 15] ^= 0x40;   /* first marker byte of the reverse site */
+	chr_record rp;
+	CHECK(chr_parse(&rp, prb, chr.len, -1, &err), "banshee pr-damaged parse");
+	CHECK(rp.cen_ok && rp.primer == 1234 && !rp.primer_ok, "banshee pr-damaged flags");
+	CHECK(!chr_amplifiable(&rp), "banshee pr-damaged dark");
+	vivi_bytes rd = { 0 };
+	CHECK(chr_read(&rd, &rp, &err) && rd.len == sizeof(payload)
+		&& memcmp(rd.data, payload, sizeof(payload)) == 0, "banshee pr-damaged read");
+	vivi_bytes_free(&rd);
+	chr_record_free(&rp);
+	vivi_dealloc(prb);
+
+	/* generation rewrite keeps both primer sites */
+	vivi_bytes gen = { 0 };
+	CHECK(chr_set_generation(&gen, chr.data, chr.len, 9, &err), "banshee set generation");
+	chr_record rg;
+	CHECK(chr_parse(&rg, gen.data, gen.len, -1, &err), "banshee generation parse");
+	CHECK(rg.generation == 9 && rg.primer == 1234 && rg.primer_ok && rg.parity == 2,
+		"banshee generation preserved");
+	chr_record_free(&rg);
+	vivi_bytes_free(&gen);
+
+	/* a destroyed CEN2 centromere is spliced at the full Banshee head size */
+	uint8_t *h2 = vivi_alloc(chr.len);
+	CHECK(h2 != nullptr, "banshee homolog scratch");
+	memcpy(h2, chr.data, chr.len);
+	h2[12 + 15] ^= 0x40;   /* first marker byte of CEN2 (units 4: tb 12, PL 15) */
+	chr_record rh;
+	CHECK(chr_parse(&rh, h2, chr.len, -1, &err), "banshee broken parse");
+	CHECK(!rh.cen_ok, "banshee centromere destroyed");
+	chr_record_free(&rh);
+	vivi_bytes hra = { 0 }, hrb = { 0 };
+	cell_report crep;
+	CHECK(cell_checkpoint_pair(&hra, &hrb, chr.data, chr.len, h2, chr.len, &crep, &err),
+		"banshee checkpoint");
+	CHECK(crep.structural >= 1, "banshee structural repair");
+	chr_record rrep;
+	CHECK(chr_parse(&rrep, hrb.data, hrb.len, -1, &err), "banshee repaired parse");
+	CHECK(rrep.cen_ok && rrep.primer == 1234 && rrep.primer_ok, "banshee repaired head");
+	vivi_bytes rrd = { 0 };
+	CHECK(chr_read(&rrd, &rrep, &err) && rrd.len == sizeof(payload)
+		&& memcmp(rrd.data, payload, sizeof(payload)) == 0, "banshee repaired read");
+	vivi_bytes_free(&rrd);
+	chr_record_free(&rrep);
+	vivi_bytes_free(&hra);
+	vivi_bytes_free(&hrb);
+	vivi_dealloc(h2);
+
+	/* container VIV14NB4NSH33 roundtrip */
+	uint8_t p2[200];
+	rands(p2, sizeof(p2));
+	int ids[2] = { 0, 1 };
+	chr_opts opts[2] = { { 128, 0, 3, 4, 0, 0, 0 }, co };
+	const uint8_t *datas[2] = { payload, p2 };
+	const size_t lens[2] = { sizeof(payload), sizeof(p2) };
+	vivi_organism *org = nullptr;
+	CHECK(organism_new(&org, ids, opts, datas, lens, 2, 60, &err), "banshee organism");
+	vivi_bytes ser = { 0 };
+	CHECK(organism_serialize14nb(&ser, org, &err), "banshee serialize");
+	CHECK(organism_container_version(ser.data, ser.len) == 143, "banshee sniff");
+	vivi_organism *loaded = nullptr;
+	CHECK(organism_deserialize(&loaded, ser.data, ser.len, &err), "banshee deserialize");
+	CHECK(loaded->chr_opts[1].primer == 1234 && loaded->chr_opts[1].parity == 2,
+		"banshee container options");
+	vivi_bytes *rdata = nullptr;
+	cell_report rep;
+	CHECK(organism_read(&rdata, loaded, &rep, &err), "banshee organism read");
+	CHECK(rdata[0].len == sizeof(payload)
+		&& memcmp(rdata[0].data, payload, sizeof(payload)) == 0
+		&& rdata[1].len == sizeof(p2) && memcmp(rdata[1].data, p2, sizeof(p2)) == 0,
+		"banshee organism payload");
+	vivi_bytes_free_n(rdata, loaded->nchr);
+	organism_free(loaded);
+
+	/* an earlier container infers the barcode from the strand */
+	vivi_bytes ser14n = { 0 };
+	CHECK(organism_serialize14n(&ser14n, org, &err), "banshee as 14n");
+	vivi_organism *inf = nullptr;
+	CHECK(organism_deserialize(&inf, ser14n.data, ser14n.len, &err), "banshee 14n load");
+	CHECK(inf->chr_opts[1].primer == 1234 && inf->chr_opts[1].parity == 2,
+		"banshee barcode inferred");
+	organism_free(inf);
+	vivi_bytes_free(&ser14n);
+	vivi_bytes_free(&ser);
+	organism_free(org);
+	vivi_bytes_free(&chr);
+}
+
 int main(void)
 {
 #ifdef _WIN32
@@ -991,6 +1110,7 @@ int main(void)
 	test_organisms();
 	test_viv14();
 	test_viv14n();
+	test_banshee();
 	dna_free_caches();
 #ifdef VIVI_TEST_TRACK
 	CHECK(g_live == 0, "no leaked allocations");

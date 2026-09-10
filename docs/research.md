@@ -8,20 +8,18 @@ from the command line.
 
 ## Format evolution
 
-The container magic evolves in named revisions; `VIV1` is the current
-format and stays readable forever:
+The container magic evolves in named revisions; all of them stay readable
+forever:
 
 | version | meaning |
 |---|---|
-| `VIV1` | current container (4-byte magic) |
-| `VIV14` | next revision (planned) |
-| `VIV14N` | ... |
-| `VIV14NB4NSH33` | final planned revision, "Vivian Banshee" |
+| `VIV1` | original container (4-byte magic) |
+| `VIV14` | versioned container, both homologs + `max_gen` |
+| `VIV14N` | VIV14 + parity genes in the chromosome (CEN2) |
+| `VIV14NB4NSH33` | final revision, "Vivian Banshee": on-strand primer sites; layout frozen |
 
-Future magics are longer than 4 bytes, so deserializers will dispatch on a
-version prefix instead of comparing a fixed 4-byte field. Until a format
-change actually ships, the magic remains `VIV1` and the byte format does
-not move.
+Deserializers dispatch on a version prefix (`organism_container_version`:
+1, 14, 141, 143, 0), so longer magics never alias the 4-byte `VIV1` field.
 
 ## The channel (`vivi/channel.h`)
 
@@ -57,7 +55,8 @@ vivi_pool pool = { 0 };
 vivi_pool_add_chromosome(&pool, strand, slen, &err);   /* one copy per gene */
 
 vivi_amp_opts ao = { .p_access = 0.05, .p_cross = 0.01, .seed = 7,
-                     .ch = { .p_sub = 1e-3 } };
+                     .ch = { .p_sub = 1e-3 },
+                     .p_primer = 0.05 };   /* Banshee: on-strand site loss */
 vivi_amp_result ar;
 vivi_pool_amplify(&ar, &pool, target_id, &ao, &err);
 /* ar.read = damaged amplicon, ar.id = molecule actually amplified
@@ -65,9 +64,12 @@ vivi_pool_amplify(&ar, &pool, target_id, &ao, &err);
 ```
 
 Primer sequences live in the primer database, exactly as in the lab; the
-pool is that database plus the molecules. On-strand primer sites are planned
-for the `VIV14` revision. An off-target amplicon is reported (not silently
-accepted): the caller decodes with the requested id and must check.
+pool is that database plus the molecules. From `VIV14NB4NSH33` the primer
+sites live on the chromosome itself (`chr_opts.primer`, validated by
+`chr_amplifiable`), and `p_primer` models their dropout: the draw happens
+only when the rate is non-zero, so the pinned stream of earlier revisions
+is unchanged. An off-target amplicon is reported (not silently accepted):
+the caller decodes with the requested id and must check.
 
 ## Outer code (`vivi/parity.h`)
 
@@ -91,6 +93,8 @@ build.bat sim            rem build + a small sweep
 vivi_sim.exe --size 1024 --gene-raw 64 --trials 1000 --p-sub 0.001 --header
 vivi_sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 ^
              --p-access 0.05 --p-cross 0.01
+vivi_sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 ^
+             --p-access 0.05 --p-cross 0.01 --p-primer 0.05
 vivi_sim.exe --in payload.bin --out run.csv --p-sub 0.0005 --p-ins 1e-5 --p-del 1e-5
 ```
 
@@ -99,7 +103,7 @@ One invocation = one CSV row; the first column selects the schema:
 ```
 whole:   mode,p_sub,p_ins,p_del,p_drop,trials,success,wrong,failed,dropped,
          rate,avg_repaired,avg_structural,avg_dead,avg_anomaly
-access:  mode,p_sub,p_ins,p_del,p_drop,p_access,p_cross,trials,success,
+access:  mode,p_sub,p_ins,p_del,p_drop,p_access,p_cross,p_primer,trials,success,
          wrong,failed,dropped,cross,rate
 library: mode,p_sub,p_ins,p_del,p_drop,replicas,parity,genes,trials,success,
          wrong,failed,dropped,rate,avg_present
@@ -109,8 +113,8 @@ library: mode,p_sub,p_ins,p_del,p_drop,replicas,parity,genes,trials,success,
 - `wrong` — a read succeeded but bytes differ (this must stay 0; the 32-bit
   Chaskey tag makes a false accept ~2^-32 per gene);
 - `failed` — no readable product;
-- `dropped` — reads lost to `p_drop` (whole) or primer failure `p_access`
-  (access); `cross` — off-target products in access mode.
+- `dropped` — reads lost to `p_drop` (whole), primer failure `p_access`, or
+  on-strand site loss `p_primer` (access); `cross` — off-target products.
 
 Sweep by looping the tool, e.g. `for /l %p in (1,1,10) do vivi_sim.exe ...`
 or a shell loop on POSIX; concatenate the CSV rows (use `--header` once).
@@ -135,15 +139,17 @@ research layer exists to show.
 
 1 KiB payload, `gene_raw=64` (16 genes), 1000 trials each:
 
-| read strategy | p_sub | p_access | p_cross | success |
-|---|---|---|---|---|
-| whole chromosome + repair | 0.001 | 0 | 0 | 0.230 |
-| one gene by primer | 0.001 | 0.05 | 0.01 | **0.668** |
+| read strategy | p_sub | p_access | p_cross | p_primer | success |
+|---|---|---|---|---|---|
+| whole chromosome + repair | 0.001 | 0 | 0 | 0 | 0.230 |
+| one gene by primer | 0.001 | 0.05 | 0.01 | 0 | **0.668** |
+| one gene, on-strand site lost 5% | 0.001 | 0.05 | 0.01 | 0.05 | 0.634 |
 
 A targeted read only needs one molecule, so it survives the same per-base
 error rate far better than reading every gene — but it pays with primer
-dropout (5%) and loses the diploid backup. Off-target products (`cross = 8`)
-were rejected by the id check with zero silent miscalls (`wrong = 0`).
+dropout and loses the diploid backup. Banshee's on-strand sites add their
+own dropout (`p_primer`); off-target products (`cross`) are rejected by the
+id check with zero silent miscalls (`wrong = 0`).
 
 ### Outer code: replication (K) and parity (m)
 
@@ -222,24 +228,23 @@ implementations; it does not claim to compete with these systems.
   `research_library.csv`; every row carries the full parameter set.
 - Report numbers together with the commit hash and the CSV rows.
 
-## Toward VIV14
+## Format evolution
 
 `VIV14` shipped: a versioned container that stores **both homologs** and
 `max_gen`, with VIV1 still readable. `VIV14N` shipped: parity genes as
 first-class chromosome members (CEN2 centromere, RS reconstruction in
-`chr_read`). Full design, wire format and migration rules:
-[viv14.md](viv14.md).
+`chr_read`). `VIV14NB4NSH33` ("Banshee") shipped: on-strand primer sites
+and the layout freeze. Full design and wire format: [viv14.md](viv14.md).
 
-Still planned: `VIV14NB4NSH33` ("Vivian Banshee") — on-strand primer sites
-for physical random access; layout freeze. The Lua reference is at byte
-parity with the C port for VIV1, VIV14 and VIV14N, enforced by the
-`xcheck` scenario pair in CI.
+The Lua reference is at byte parity with the C port for every revision,
+enforced by the `xcheck` scenario pair in CI.
 
 ## Roadmap
 
 1. **Channel + sim + CSV** — done (this document).
 2. **Random access** — done (`vivi/pool.h`, `vivi_sim --access`); on-strand
-   primer sites move to the `VIV14` revision.
+   primer sites shipped in `VIV14NB4NSH33` (`chr_opts.primer`,
+   `chr_amplifiable`, `--p-primer`).
 3. **Outer code** — done (`vivi/parity.h`: systematic Reed-Solomon over
    GF(256); `vivi_sim --library --replicas K --parity M`).
 4. **Fuzzing + benchmarks** — done (`test/fuzz/`, `make fuzz-smoke`,

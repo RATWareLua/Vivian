@@ -55,7 +55,7 @@ physically survived.
   public.
 - Not a compressor: expect a small, deterministic size overhead (the
   VIV1 container adds ~3%).
-- Not production archival software — it is a rigorous toy: 480-check test
+- Not production archival software — it is a rigorous toy: 515-check test
   suite, official Chaskey-12 vectors, ASan-clean, but experimental.
 
 ## Quick start
@@ -67,7 +67,7 @@ beyond the CRT's `memcpy/memset/memcmp`:
 cd framework\C
 build.bat lib        rem framework only -> vivi.lib
 build.bat            rem + test suite + interactive demo
-vivi_test.exe        rem pass=480 fail=0
+vivi_test.exe        rem pass=515 fail=0
 build.bat density    rem packing-density report (bits/nt)
 build.bat sim        rem channel experiment sweep (CSV)
 build.bat research   rem full parameter sweeps -> research_*.csv
@@ -223,8 +223,11 @@ the chromosome (CEN2 centromere, gene-type marker), so `chr_read` can
 reconstruct erased genes with a systematic Reed-Solomon code — the outer
 code becomes part of the format.
 
-The ladder ends with `VIV14NB4NSH33` ("Vivian Banshee", on-strand
-primers); see [docs/research.md](docs/research.md).
+`VIV14NB4NSH33` ("Vivian Banshee", [design](docs/viv14.md)): a **primer
+site on each side of the chromosome** (barcode 1..65535, tagged), so a
+molecule carries its own random-access address; `chr_amplifiable` tells
+whether physical access survived, and `vivi_sim --access --p-primer`
+models on-strand site dropout. This is the final revision: layout frozen.
 
 ## Documentation
 
@@ -247,12 +250,13 @@ primers); see [docs/research.md](docs/research.md).
         ├── include/vivi/  public API: vivi.h, dna.h, genome.h, chromosome.h,
         │                  cell.h, organism.h
         ├── src/           the framework itself (no I/O, no CRT assumptions)
-        ├── test/          480-check self-test, density/sim tools, fuzz harnesses
+        ├── test/          515-check self-test, density/sim tools, fuzz harnesses,
+        │                  xcheck C<->Lua byte-parity scenarios
         │                  (own entrypoints, hosted; fuzz targets POSIX-only)
         ├── demo/          interactive terminal tamagotchi (own entrypoint, hosted)
         ├── vivi.lib       built with build.bat lib / make lib
-        ├── build.bat      all | lib | test | density | sim | research | asan | clean
-        └── Makefile       all | lib | test | demo | density | sim | research | fuzz | asan | clean
+        ├── build.bat      all | lib | test | density | sim | research | xcheck | asan | clean
+        └── Makefile       all | lib | test | demo | density | sim | research | xcheck | fuzz | asan | clean
 ```
 
 The two implementations are independent: `luau/` is readable and
@@ -261,25 +265,26 @@ hackable (run it with any Luau runtime, e.g.
 grab one from the [luau-lang/luau releases](https://github.com/luau-lang/luau/releases)),
 while `C/` is the deployable engine.
 Both write identical VIV1 bytes; from VIV14 on the C port is the reference,
-and the Lua framework now ports every revision (VIV14, VIV14N) with the
-byte parity enforced in CI.
+and the Lua framework ports every revision (VIV14, VIV14N, Banshee) with
+the byte parity enforced in CI.
 
 ## Verification
 
-- **480/480** checks: 64 official Chaskey-12 vectors; codec round-trips
+- **515/515** checks: 64 official Chaskey-12 vectors; codec round-trips
   for every parameter combination; constraint edge cases; gene/chromosome
   structure and corruption detection; diploid repair, checkpoints,
   senescence, stem rejuvenation; mutations, crossing-over mosaics; VIV1
-  round-trips.
+  through Banshee round-trips, parity reconstruction and primer dropout.
 - AddressSanitizer-clean: `build.bat asan` / `make asan` runs the suite
   under ASan. The codec's lazy tables are released at exit
   (`dna_free_caches()`), so a CRT leak check is clean as well.
 - libFuzzer harnesses for every parser (`make fuzz-smoke`, POSIX) and
   `make research` sweeps; both run in CI.
 - Byte-format equality between the Lua reference and the C port: the
-  shared `xcheck` scenarios (chromosome VIV1/VIV14N, parity recovery,
-  organism VIV14/VIV14N serialization, damage, replication, crossing,
-  mutation) produce identical hex on both sides; CI diffs them.
+  shared `xcheck` scenarios (chromosome VIV1/VIV14N/Banshee, parity
+  recovery, organism VIV14/VIV14N/Banshee serialization, damage,
+  replication, crossing, mutation) produce identical hex on both sides;
+  CI diffs the 33 lines.
 
 ## Status
 
