@@ -5,14 +5,22 @@ on:
     branches: [ main ]
   pull_request:
 
+env:
+  LLVM_VERSION: 23.1.0
+
 jobs:
   build-and-test:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install clang
-        run: sudo apt-get update && sudo apt-get install -y clang
+      - name: Install LLVM
+        run: |
+          curl -fsSL -o /tmp/llvm.tar.xz \
+            "https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/LLVM-${LLVM_VERSION}-Linux-X64.tar.xz"
+          sudo mkdir -p /opt/llvm
+          sudo tar -xJf /tmp/llvm.tar.xz -C /opt/llvm --strip-components=1
+          echo "/opt/llvm/bin" >> "$GITHUB_PATH"
 
       - name: Toolchain
         run: clang --version

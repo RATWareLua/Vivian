@@ -5,8 +5,8 @@
 /* absorbs messages when a caller passes err == nullptr */
 static const char *genome_err_sink;
 
-static const uint8_t genome_PROM[3] = { 0x1B, 0x1B, 0x1B };   /* ACGT x3 */
-static const uint8_t genome_TERM[3] = { 0xE4, 0xE4, 0xE4 };   /* TGAC x3 */
+static constexpr uint8_t genome_PROM[3] = { 0x1B, 0x1B, 0x1B };   /* ACGT x3 */
+static constexpr uint8_t genome_TERM[3] = { 0xE4, 0xE4, 0xE4 };   /* TGAC x3 */
 
 static uint32_t rotl32(uint32_t x, int n)
 {
@@ -15,8 +15,8 @@ static uint32_t rotl32(uint32_t x, int n)
 
 /* ---- Chaskey-12 (ISO/IEC 29192-6), official reference translation ---- */
 
-static const uint32_t CHASKEY_KEY[4] = { 0x1B87'3593u, 0x9E37'79B9u, 0x85EB'CA6Bu, 0xC2B2'AE35u };
-static const uint32_t C87[2] = { 0x00u, 0x87u };
+static constexpr uint32_t CHASKEY_KEY[4] = { 0x1B87'3593u, 0x9E37'79B9u, 0x85EB'CA6Bu, 0xC2B2'AE35u };
+static constexpr uint32_t C87[2] = { 0x00u, 0x87u };
 
 static void times_two(uint32_t out[4], const uint32_t in[4])
 {

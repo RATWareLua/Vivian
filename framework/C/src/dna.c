@@ -5,7 +5,7 @@
 /* absorbs messages when a caller passes err == nullptr */
 static const char *dna_err_sink;
 
-static const uint32_t DNA_HDR_CONST = 0x1B87'3593u;
+constexpr uint32_t DNA_HDR_CONST = 0x1B87'3593u;
 
 static uint32_t dna_xs32(uint32_t x)
 {
