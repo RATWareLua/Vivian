@@ -262,7 +262,8 @@ models on-strand site dropout. This is the final revision: layout frozen.
         │                  xcheck C<->Lua byte-parity scenarios
         │                  (own entrypoints, hosted; fuzz targets POSIX-only)
         ├── demo/          interactive terminal tamagotchi (own entrypoint, hosted)
-        ├── tools/         separate modules: vivi_cli (file CLI), vivi_bench (benchmark)
+        ├── tools/         separate modules: vivi_cli (file CLI), vivi_bench
+        │                  (benchmark), vivi_calib (quality calibration)
         ├── vivi.lib       built with build.bat lib / make lib
         ├── build.bat      all | lib | test | density | sim | research | xcheck | asan | clean
         └── Makefile       all | lib | test | demo | density | sim | research | xcheck | fuzz | asan | clean

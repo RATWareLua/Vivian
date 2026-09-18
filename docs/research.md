@@ -83,6 +83,24 @@ vivi_read_free(&r);
 - The primitives are C-side; the Lua reference returns quality through its
   read table and can vote in Lua.
 
+### The calibration module (`tools/vivi_calib`)
+
+A worked, **separate** module for a nominal short-read platform. Quality is
+`Q ~ Normal(q_mean - q_slope * pos/len, q_sd)`, clamped; a base takes an error
+with the Phred probability `10^(-Q/10)`; the *reported* quality may carry a
+miscalibration offset `q_bias`. The tool builds reads with the calibration
+primitives, prints a reliability table plus the expected calibration error
+(ECE), corrects the offset, and compares hard vs soft consensus. 64 B, 1000
+trials, coverage 5:
+
+| settings | ECE reported | ECE corrected | mismatches hard | soft |
+|---|---|---|---|---|
+| q_mean 36, bias 0 | 0.0001 | 0.0001 | 0 | 0 |
+| q_mean 12, bias +6 | 0.0599 | 0.0007 | 1104 | 736 |
+
+Calibration is per-platform: fit `q_mean/q_slope/q_bias` to your own reliability
+curve and the core stays untouched.
+
 ## Inner code (`vivi/rs.h`)
 
 The 32-bit gene tag turns any corruption into a whole-gene erasure. The
@@ -188,11 +206,11 @@ vivi_sim.exe --in payload.bin --out run.csv --p-sub 0.0005 --p-ins 1e-5 --p-del 
 One invocation = one CSV row; the first column selects the schema:
 
 ```
-whole:   mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,p_burst_del,coverage,cov_lambda,soft,inner,trials,
+whole:   mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,p_burst_del,p_synth,amp_bias,coverage,cov_lambda,soft,inner,trials,
          success,wrong,failed,dropped,rate,avg_repaired,avg_structural,avg_dead,avg_anomaly
-access:  mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,p_burst_del,p_access,p_cross,p_primer,
+access:  mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,p_burst_del,p_synth,amp_bias,p_access,p_cross,p_primer,
          coverage,cov_lambda,soft,inner,trials,success,wrong,failed,dropped,cross,rate
-library: mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,p_burst_del,coverage,cov_lambda,soft,inner,replicas,
+library: mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,p_burst_del,p_synth,amp_bias,coverage,cov_lambda,soft,inner,replicas,
          parity,genes,trials,success,wrong,failed,dropped,rate,avg_present
 ```
 
@@ -377,14 +395,18 @@ of substitutions **or** deletions (`p_burst`/`burst_len`/`p_burst_del`), and
 per-base quality with soft-decision consensus (`vivi_channel_read_soft`,
 `soft`), all deterministic per seed. Per-molecule coverage is
 `coverage` independent reads with majority voting (`vivi_consensus_read`) or
-a Poisson count per molecule (`--coverage-lambda`), and the inner code
-(`vivi/rs.h`) corrects byte errors inside a molecule.
+a Poisson count per molecule (`--coverage-lambda`); PCR amplification bias
+(`--amp-bias`, a log-normal multiplier on the mean) and per-oligo synthesis
+dropout (`--p-synth`) modulate it. A Phred-calibrated quality model can be
+supplied by the caller (see the calibration primitives and
+`tools/vivi_calib`), and the inner code (`vivi/rs.h`) corrects byte errors
+inside a molecule.
 
-Not modelled (yet): PCR amplification bias, per-oligo synthesis dropout
-separate from `p_drop`, adapter contamination, read quality calibrated to a
-real basecaller (our quality is the ideal unchanged/changed split), and
-per-platform error rates. Treat absolute
-numbers as comparative, not as predictions for a specific platform.
+Not modelled (yet): adapter contamination (a preprocessing concern: it needs
+a trimming stage, not a storage property), and per-platform error/quality
+curves fitted to real instruments (the model parameters are yours to fit).
+Treat absolute numbers as comparative, not as predictions for a specific
+platform.
 
 ## Related work
 
@@ -460,9 +482,13 @@ through a Banshee container.
 16. **Inner-code desync** — done: inner genes encode with `h >= 6`, which
     removes the constraint-decoder desync (42% -> ~0.1% of substitutions)
     and roughly doubles the inner code's measured lift.
+17. **Calibration module** — done (`tools/vivi_calib`: a nominal short-read
+    model, reliability/ECE reporting and recalibration, hard vs soft).
+18. **PCR bias + synthesis dropout** — done (`--amp-bias`, `--p-synth`).
 
-Still open (honest limits, not missing code): a quality model calibrated to
-a specific basecaller's reliability curve, PCR amplification bias, per-oligo
-synthesis dropout, and adapter contamination.
+Still open (honest limits, not missing code): a quality/reliability curve
+fitted to a specific real instrument (the calibration module shows how, the
+numbers are yours), and adapter contamination, which belongs to a
+preprocessing/trimming stage rather than the storage format.
 
 All results are simulation only; no wet-lab claims are made.

@@ -25,6 +25,10 @@ framework/C/tools/vivi_cli/vivi_cli.exe
 framework/C/tools/vivi_bench/vivi_bench
 framework/C/tools/vivi_bench/vivi_bench.exe
 
+# Optional calibration module (framework/C/tools/vivi_calib)
+framework/C/tools/vivi_calib/vivi_calib
+framework/C/tools/vivi_calib/vivi_calib.exe
+
 # ---------------------------------------------------------------------------
 # Luau interpreter binary: not part of the repository.
 # Grab a build from https://github.com/luau-lang/luau/releases
