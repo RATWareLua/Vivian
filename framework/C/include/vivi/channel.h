@@ -39,4 +39,19 @@ typedef struct {
 [[nodiscard]] bool vivi_channel_read(vivi_read *out, const uint8_t *strand, size_t slen,
 	const vivi_channel_opts *opts, const char **err);
 
+/* Coverage: read the same molecule `coverage` times and majority-vote
+ * every base, the way a real pipeline sequences many copies of one oligo.
+ * Substitution-only: with coverage > 1 every surviving read must keep the
+ * original base count, so p_ins and p_del must stay 0. A per-base tie
+ * picks the lowest digit, so the result is fully deterministic. Reads are
+ * seeded `ch.seed + r` for r = 0..coverage-1; coverage <= 1 is exactly
+ * vivi_channel_read with `ch`, so single-read streams are unchanged. */
+typedef struct {
+	vivi_channel_opts ch;  /* per-read channel; seed is the base read seed */
+	uint32_t coverage;     /* independent reads, 1 = a plain read */
+} vivi_consensus_opts;
+
+[[nodiscard]] bool vivi_consensus_read(vivi_read *out, const uint8_t *strand, size_t slen,
+	const vivi_consensus_opts *opts, const char **err);
+
 #endif /* CHANNEL_H */

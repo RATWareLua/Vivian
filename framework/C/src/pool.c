@@ -89,7 +89,7 @@ bool vivi_pool_amplify(vivi_amp_result *out, const vivi_pool *pool, int id,
 	memset(out, 0, sizeof(*out));
 	out->id = -1;
 	if (!pool || pool->count == 0) { *err = "empty pool"; return false; }
-	vivi_amp_opts def = { 0.0, 0.0, 0, { 0.0, 0.0, 0.0, 0.0, 0 }, 0.0 };
+	vivi_amp_opts def = { 0.0, 0.0, 0, { 0.0, 0.0, 0.0, 0.0, 0 }, 0.0, 1u };
 	if (!opts) opts = &def;
 	if (!(opts->p_access >= 0.0 && opts->p_access <= 1.0)
 		|| !(opts->p_cross >= 0.0 && opts->p_cross <= 1.0)
@@ -119,9 +119,11 @@ bool vivi_pool_amplify(vivi_amp_result *out, const vivi_pool *pool, int id,
 		pick = (size_t)(vivi_prng_next(&rng) % pool->count);
 		if (pool->ids[pick] == id) pick = (pick + 1) % pool->count;
 	}
-	vivi_channel_opts ch = opts->ch;
-	ch.seed = opts->seed + (uint32_t)pick * 0x9E37'79B9u + 1u;
-	if (!vivi_channel_read(&out->read, pool->strands[pick], pool->lens[pick], &ch, err))
+	vivi_consensus_opts co = { 0 };
+	co.ch = opts->ch;
+	co.ch.seed = opts->seed + (uint32_t)pick * 0x9E37'79B9u + 1u;
+	co.coverage = opts->coverage;
+	if (!vivi_consensus_read(&out->read, pool->strands[pick], pool->lens[pick], &co, err))
 		return false;
 	out->id = pool->ids[pick];
 	return true;

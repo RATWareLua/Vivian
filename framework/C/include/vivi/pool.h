@@ -36,6 +36,7 @@ typedef struct {
 	uint32_t seed;         /* rng seed; 0 behaves as 1 */
 	vivi_channel_opts ch;  /* amplification/sequencing errors on the amplicon */
 	double p_primer;       /* VIV14NB4NSH33: on-strand primer-site dropout */
+	uint32_t coverage;     /* reads majority-voted per amplicon (1 = plain) */
 } vivi_amp_opts;
 
 typedef struct {

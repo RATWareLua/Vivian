@@ -72,12 +72,14 @@ vivi_sim.exe --size 1024 --gene-raw 64 --trials 1000 --p-sub 0.0005 >> research_
 vivi_sim.exe --size 1024 --gene-raw 64 --trials 1000 --p-sub 0.001 >> research_whole.csv
 vivi_sim.exe --size 1024 --gene-raw 64 --trials 1000 --p-sub 0.002 >> research_whole.csv
 vivi_sim.exe --size 1024 --gene-raw 64 --trials 1000 --p-sub 0.004 >> research_whole.csv
+vivi_sim.exe --size 1024 --gene-raw 64 --trials 1000 --p-sub 0.001 --coverage 5 >> research_whole.csv
 vivi_sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0 --header > research_access.csv
 vivi_sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0.01 --p-cross 0.01 >> research_access.csv
 vivi_sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0.05 --p-cross 0.01 >> research_access.csv
 vivi_sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0.1 --p-cross 0.01 >> research_access.csv
 vivi_sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0 --p-cross 0.01 --p-primer 0.05 >> research_access.csv
 vivi_sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0.05 --p-cross 0.01 --p-primer 0.05 >> research_access.csv
+vivi_sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0.05 --p-cross 0.01 --coverage 5 >> research_access.csv
 vivi_sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --header > research_library.csv
 vivi_sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --replicas 2 >> research_library.csv
 vivi_sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --replicas 3 >> research_library.csv
@@ -86,6 +88,7 @@ vivi_sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --p
 vivi_sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --parity 4 >> research_library.csv
 vivi_sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --parity 8 >> research_library.csv
 vivi_sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --replicas 2 --parity 4 >> research_library.csv
+vivi_sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --coverage 5 >> research_library.csv
 echo wrote research_whole.csv research_access.csv research_library.csv
 exit /b 0
 

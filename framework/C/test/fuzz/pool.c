@@ -38,7 +38,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
 	seed_once();
 	vivi_amp_opts ao = { 0.05, 0.01, (uint32_t)size + 1u,
-		{ 0.01, 0.001, 0.001, 0.01, 2u }, 0.01 };
+		{ 0.01, 0.001, 0.001, 0.01, 2u }, 0.01, 1u };
 	if (g_seed.data) amplify_one(g_seed.data, g_seed.len, &ao);
 	amplify_one(data, size, &ao);
 	return 0;

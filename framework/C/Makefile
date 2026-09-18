@@ -71,17 +71,20 @@ research: sim.exe
 	./sim.exe --size 1024 --gene-raw 64 --trials 1000 --p-sub 0 --header > research_whole.csv
 	@for p in 0.0002 0.0005 0.001 0.002 0.004; do \
 		./sim.exe --size 1024 --gene-raw 64 --trials 1000 --p-sub $$p >> research_whole.csv; done
+	./sim.exe --size 1024 --gene-raw 64 --trials 1000 --p-sub 0.001 --coverage 5 >> research_whole.csv
 	./sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0 --header > research_access.csv
 	@for a in 0.01 0.05 0.1; do \
 		./sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access $$a --p-cross 0.01 >> research_access.csv; done
 	./sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0 --p-cross 0.01 --p-primer 0.05 >> research_access.csv
 	./sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0.05 --p-cross 0.01 --p-primer 0.05 >> research_access.csv
+	./sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 --p-access 0.05 --p-cross 0.01 --coverage 5 >> research_access.csv
 	./sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --header > research_library.csv
 	@for k in 2 3 4; do \
 		./sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --replicas $$k >> research_library.csv; done
 	@for m in 2 4 8; do \
 		./sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --parity $$m >> research_library.csv; done
 	./sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --replicas 2 --parity 4 >> research_library.csv
+	./sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 --coverage 5 >> research_library.csv
 	@echo "wrote research_whole.csv research_access.csv research_library.csv"
 
 # libFuzzer harnesses (POSIX only; needs clang -fsanitize=fuzzer)

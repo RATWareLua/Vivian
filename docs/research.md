@@ -45,6 +45,28 @@ vivi_channel_read(&rd, strand, slen, &ch, &err);
 - The research layer uses SplitMix64 (`vivi_prng`); the format-level
   xorshift32 (`vivi_rng`) stays frozen for Lua byte parity.
 
+## Consensus (coverage)
+
+`vivi_consensus_read` reads the same molecule `coverage` times and
+majority-votes every base, the way a real pipeline sequences many copies
+of one oligo before calling a base:
+
+```c
+vivi_consensus_opts cn = { { .p_sub = 1e-3, .seed = 42 }, .coverage = 9 };
+vivi_read rd;
+vivi_consensus_read(&rd, strand, slen, &cn, &err);
+```
+
+- Reads are seeded `ch.seed + r` for `r = 0..coverage-1`; the vote is per
+  2-bit base and a tie picks the lowest digit, so the consensus is a pure
+  function of `(strand, ch, coverage)`.
+- Substitution-only: with `coverage > 1` every surviving read must keep
+  the original base count, so `p_ins`/`p_del` must stay 0.
+- `coverage <= 1` is exactly `vivi_channel_read`, so every pinned
+  single-read stream is unchanged.
+- `--coverage K` applies it in all three modes: `whole` votes each
+  homolog, `library` votes each replica, `access` votes each amplicon.
+
 ## Random access (`vivi/pool.h`)
 
 A pool stores each gene as a separate molecule, and one amplification picks
@@ -95,17 +117,19 @@ vivi_sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 ^
              --p-access 0.05 --p-cross 0.01
 vivi_sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 ^
              --p-access 0.05 --p-cross 0.01 --p-primer 0.05
+vivi_sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 ^
+             --coverage 5
 vivi_sim.exe --in payload.bin --out run.csv --p-sub 0.0005 --p-ins 1e-5 --p-del 1e-5
 ```
 
 One invocation = one CSV row; the first column selects the schema:
 
 ```
-whole:   mode,p_sub,p_ins,p_del,p_drop,trials,success,wrong,failed,dropped,
+whole:   mode,p_sub,p_ins,p_del,p_drop,coverage,trials,success,wrong,failed,dropped,
          rate,avg_repaired,avg_structural,avg_dead,avg_anomaly
-access:  mode,p_sub,p_ins,p_del,p_drop,p_access,p_cross,p_primer,trials,success,
+access:  mode,p_sub,p_ins,p_del,p_drop,p_access,p_cross,p_primer,coverage,trials,success,
          wrong,failed,dropped,cross,rate
-library: mode,p_sub,p_ins,p_del,p_drop,replicas,parity,genes,trials,success,
+library: mode,p_sub,p_ins,p_del,p_drop,coverage,replicas,parity,genes,trials,success,
          wrong,failed,dropped,rate,avg_present
 ```
 
@@ -168,6 +192,24 @@ among 20), and the combination is nearly lossless at 2.5× storage. With no
 redundancy the baseline is 0.006 — every one of 16 genes must survive, and
 each has only ~67% chance at this error rate.
 
+### Consensus: reads per molecule turn erasures into corrections
+
+1000 trials each; coverage = reads majority-voted before the tag check:
+
+| mode | parameters | coverage 1 | coverage 5 | coverage 15 |
+|---|---|---|---|---|
+| whole | 256 B, p_sub = 0.002 | 0.183 | **1.000** | 1.000 |
+| library | 1 KiB, n=16, p_sub = 0.001 | 0.006 | **1.000** | — |
+| access | 1 KiB, p_sub = 0.001, p_access = 0.05 | 0.668 | **0.936** | — |
+
+Consensus is the cheapest lever for substitutions: at 0.2% per base a
+9-fold read turns a 5-fold loss into a total recovery without spending any
+storage redundancy, because a base is only wrong if more than half its
+copies are wrong. It composes with the outer code (the `library` row uses
+K=1, m=0), but it multiplies read cost, so the trade is reads vs. molecules.
+Random access stays bounded by primer dropout (`p_access`), which no amount
+of coverage fixes: the 0.936 ceiling is its 5% loss, not a sequencing error.
+
 ## Fuzzing
 
 `test/fuzz/` holds one libFuzzer harness per parser: `dna.c` (strand, ASCII
@@ -187,7 +229,9 @@ everywhere).
 ## Channel assumptions
 
 Modelled: independent per-base substitution, insertion and deletion with
-fixed rates, plus whole-read dropout, all deterministic per seed.
+fixed rates, plus whole-read dropout, all deterministic per seed. Per-molecule
+coverage is modelled as `coverage` independent reads with majority voting
+(`vivi_consensus_read`).
 
 Not modelled (yet): context-dependent rates (homopolymers, GC), PCR
 amplification bias, per-oligo synthesis dropout, read truncation and quality

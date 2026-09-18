@@ -64,3 +64,63 @@ bool vivi_channel_read(vivi_read *out, const uint8_t *strand, size_t slen,
 	vivi_dealloc(digits);
 	return true;
 }
+
+bool vivi_consensus_read(vivi_read *out, const uint8_t *strand, size_t slen,
+	const vivi_consensus_opts *opts, const char **err)
+{
+	if (!err) err = &channel_err_sink;
+	if (!out) { *err = "expected output"; return false; }
+	if (!opts) return vivi_channel_read(out, strand, slen, nullptr, err);
+	if (opts->coverage <= 1) return vivi_channel_read(out, strand, slen, &opts->ch, err);
+	if (!strand) { *err = "expected string"; return false; }
+	if (slen > ((size_t)-1) / 4) { *err = "strand too long"; return false; }
+	size_t n = slen * 4;
+	if (n == 0) return vivi_channel_read(out, strand, slen, &opts->ch, err);
+	uint32_t *counts = vivi_zalloc(n, 4 * sizeof(uint32_t));
+	if (!counts) { *err = "out of memory"; return false; }
+	size_t survivors = 0;
+	for (uint32_t r = 0; r < opts->coverage; r++) {
+		vivi_channel_opts ch = opts->ch;
+		ch.seed = opts->ch.seed + r;
+		vivi_read rd;
+		if (!vivi_channel_read(&rd, strand, slen, &ch, err)) {
+			vivi_dealloc(counts);
+			return false;
+		}
+		if (rd.dropped) { vivi_bytes_free(&rd.strand); continue; }
+		if (rd.bases != n) {
+			vivi_bytes_free(&rd.strand);
+			vivi_dealloc(counts);
+			*err = "consensus requires equal-length reads (no indels)";
+			return false;
+		}
+		for (size_t i = 0; i < n; i++)
+			counts[i * 4 + (size_t)digit_at(rd.strand.data, i)]++;
+		vivi_bytes_free(&rd.strand);
+		survivors++;
+	}
+	memset(out, 0, sizeof(*out));
+	if (survivors == 0) {
+		vivi_dealloc(counts);
+		out->dropped = 1;
+		return true;
+	}
+	size_t bytes = (n + 3) / 4;
+	uint8_t *packed = vivi_zalloc(bytes, 1);
+	if (!packed) {
+		vivi_dealloc(counts);
+		*err = "out of memory";
+		return false;
+	}
+	for (size_t i = 0; i < n; i++) {
+		size_t best = 0;
+		for (size_t d = 1; d < 4; d++)
+			if (counts[i * 4 + d] > counts[i * 4 + best]) best = d;
+		packed[i / 4] |= (uint8_t)(best << (2 * (3 - i % 4)));
+	}
+	out->strand.data = packed;
+	out->strand.len = bytes;
+	out->bases = n;
+	vivi_dealloc(counts);
+	return true;
+}
