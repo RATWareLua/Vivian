@@ -9,6 +9,8 @@
 #include "vivi/cell.h"
 #include "vivi/organism.h"
 #include "vivi/rs.h"
+#include "vivi/channel.h"
+#include "vivi/pool.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -458,9 +460,135 @@ static void scenario_organisms(void)
 	organism_free(org);
 }
 
+static void chan_case(const char *label, const uint8_t *data, size_t n,
+	const vivi_channel_opts *opts, int hexout, int numout)
+{
+	const char *err = nullptr;
+	vivi_read rd;
+	if (!vivi_channel_read(&rd, data, n, opts, &err)) {
+		printf("%s fail\n", label);
+		return;
+	}
+	if (hexout) hexline(label, rd.strand.data, rd.strand.len);
+	if (numout) printf("%s_n %zu %d\n", label, rd.bases, rd.dropped);
+	vivi_bytes_free(&rd.strand);
+}
+
+static void consensus_case(const char *label, const uint8_t *data, size_t n,
+	const vivi_consensus_opts *opts, int hexout, int numout)
+{
+	const char *err = nullptr;
+	vivi_read rd;
+	if (!vivi_consensus_read(&rd, data, n, opts, &err)) {
+		printf("%s fail\n", label);
+		return;
+	}
+	if (hexout) hexline(label, rd.strand.data, rd.strand.len);
+	if (numout) printf("%s_n %zu %d\n", label, rd.bases, rd.dropped);
+	vivi_bytes_free(&rd.strand);
+}
+
+static void scenario_research(void)
+{
+	const char *err = nullptr;
+	uint8_t chdata[32];
+	payload_seed(chdata, sizeof(chdata), 0x51AB1Eu);
+	hexline("ch_payload", chdata, sizeof(chdata));
+
+	chan_case("ch_identity", chdata, sizeof(chdata),
+		&(vivi_channel_opts){ .seed = 7 }, 1, 1);
+	chan_case("ch_drop", chdata, sizeof(chdata),
+		&(vivi_channel_opts){ .seed = 7, .p_drop = 0.5 }, 1, 1);
+	chan_case("ch_sub", chdata, sizeof(chdata),
+		&(vivi_channel_opts){ .seed = 7, .p_sub = 0.1 }, 1, 1);
+	chan_case("ch_ins", chdata, sizeof(chdata),
+		&(vivi_channel_opts){ .seed = 7, .p_ins = 0.1 }, 1, 1);
+	chan_case("ch_del", chdata, sizeof(chdata),
+		&(vivi_channel_opts){ .seed = 7, .p_del = 0.1 }, 1, 1);
+	chan_case("ch_trunc", chdata, sizeof(chdata),
+		&(vivi_channel_opts){ .seed = 7, .p_trunc = 1.0 }, 0, 1);
+	chan_case("ch_burst", chdata, sizeof(chdata),
+		&(vivi_channel_opts){ .seed = 7, .p_burst = 1.0, .burst_len = 4 }, 1, 0);
+	chan_case("ch_gc", chdata, sizeof(chdata),
+		&(vivi_channel_opts){ .seed = 7, .p_sub_gc = 1.0 }, 1, 0);
+	chan_case("ch_hp", chdata, sizeof(chdata),
+		&(vivi_channel_opts){ .seed = 7, .p_sub_hp = 1.0 }, 1, 0);
+	chan_case("ch_combo", chdata, sizeof(chdata),
+		&(vivi_channel_opts){ .seed = 11, .p_sub = 0.03, .p_ins = 0.02,
+			.p_del = 0.02, .p_sub_gc = 0.05, .p_sub_hp = 0.05,
+			.p_burst = 0.04, .burst_len = 3, .p_trunc = 0.1 }, 1, 0);
+
+	consensus_case("ch_cons0", chdata, sizeof(chdata),
+		&(vivi_consensus_opts){ .ch = { .seed = 7 }, .coverage = 0 }, 1, 0);
+	consensus_case("ch_cons1", chdata, sizeof(chdata),
+		&(vivi_consensus_opts){ .ch = { .seed = 7 }, .coverage = 1 }, 1, 0);
+
+	vivi_read p0, c0, c1;
+	(void)vivi_channel_read(&p0, chdata, sizeof(chdata),
+		&(vivi_channel_opts){ .seed = 7 }, &err);
+	(void)vivi_consensus_read(&c0, chdata, sizeof(chdata),
+		&(vivi_consensus_opts){ .ch = { .seed = 7 }, .coverage = 0 }, &err);
+	(void)vivi_consensus_read(&c1, chdata, sizeof(chdata),
+		&(vivi_consensus_opts){ .ch = { .seed = 7 }, .coverage = 1 }, &err);
+	int eq0 = !p0.dropped && p0.bases == sizeof(chdata) * 4
+		&& p0.strand.len == sizeof(chdata)
+		&& memcmp(p0.strand.data, chdata, sizeof(chdata)) == 0;
+	int eq1 = !c0.dropped && c0.bases == sizeof(chdata) * 4
+		&& c0.strand.len == sizeof(chdata)
+		&& memcmp(c0.strand.data, chdata, sizeof(chdata)) == 0;
+	int eq2 = !c1.dropped && c1.bases == sizeof(chdata) * 4
+		&& c1.strand.len == sizeof(chdata)
+		&& memcmp(c1.strand.data, chdata, sizeof(chdata)) == 0;
+	printf("ch_cons_eq %d %d %d\n", eq0, eq1, eq2);
+	vivi_bytes_free(&p0.strand);
+	vivi_bytes_free(&c0.strand);
+	vivi_bytes_free(&c1.strand);
+
+	consensus_case("ch_cons5", chdata, sizeof(chdata),
+		&(vivi_consensus_opts){ .ch = { .seed = 7, .p_sub = 0.05 }, .coverage = 5 }, 1, 0);
+
+	vivi_read ir;
+	if (vivi_consensus_read(&ir, chdata, sizeof(chdata),
+			&(vivi_consensus_opts){ .ch = { .seed = 7, .p_ins = 1.0 }, .coverage = 5 }, &err)) {
+		printf("ch_cons_indel ok\n");
+		vivi_bytes_free(&ir.strand);
+	} else {
+		printf("ch_cons_indel %s\n", err);
+	}
+
+	uint8_t pdata[200];
+	payload_seed(pdata, sizeof(pdata), 0xC0FFEE07u);
+	vivi_bytes pchr = { 0 };
+	chr_opts po = { .gene_raw = 64, .h = 3, .units = 3, .flags = 9 };
+	if (!chr_encode(&pchr, 7, pdata, sizeof(pdata), &po, &err)) {
+		printf("ch_pool_chr fail\n");
+		return;
+	}
+	vivi_pool pool = { 0 };
+	if (!vivi_pool_add_chromosome(&pool, pchr.data, pchr.len, &err)) {
+		printf("ch_pool_add fail\n");
+		vivi_bytes_free(&pchr);
+		return;
+	}
+	vivi_amp_opts ao = { .p_access = 0.0, .p_cross = 0.01, .seed = 0x1234,
+		.p_primer = 0.05, .coverage = 3 };
+	ao.ch.p_sub = 0.01;
+	vivi_amp_result ar;
+	if (!vivi_pool_amplify(&ar, &pool, 1, &ao, &err)) {
+		printf("ch_pool_amp fail\n");
+	} else {
+		hexline("ch_pool", ar.read.strand.data, ar.read.strand.len);
+		printf("ch_pool_n %d %d\n", ar.id, ar.read.dropped);
+		vivi_bytes_free(&ar.read.strand);
+	}
+	vivi_pool_free(&pool);
+	vivi_bytes_free(&pchr);
+}
+
 int main(void)
 {
 	scenario_chromosomes();
 	scenario_organisms();
+	scenario_research();
 	return 0;
 }

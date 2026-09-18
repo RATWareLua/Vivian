@@ -336,5 +336,90 @@ local function scenario_organisms()
 	end
 end
 
+local function read_is(rd, s)
+	return rd.dropped == 0 and rd.bases == #s * 4 and rd.strand == s
+end
+
+local function scenario_research()
+	local channel = require("./channel")
+	local pool = require("./pool")
+
+	local chdata = payload_seed(32, 0x51AB1E)
+	line("ch_payload", chdata)
+
+	local rd = channel.read(chdata, { seed = 7 })
+	line("ch_identity", rd.strand)
+	numline("ch_identity_n", rd.bases, rd.dropped)
+
+	rd = channel.read(chdata, { seed = 7, p_drop = 0.5 })
+	line("ch_drop", rd.strand)
+	numline("ch_drop_n", rd.bases, rd.dropped)
+
+	rd = channel.read(chdata, { seed = 7, p_sub = 0.1 })
+	line("ch_sub", rd.strand)
+	numline("ch_sub_n", rd.bases, rd.dropped)
+
+	rd = channel.read(chdata, { seed = 7, p_ins = 0.1 })
+	line("ch_ins", rd.strand)
+	numline("ch_ins_n", rd.bases, rd.dropped)
+
+	rd = channel.read(chdata, { seed = 7, p_del = 0.1 })
+	line("ch_del", rd.strand)
+	numline("ch_del_n", rd.bases, rd.dropped)
+
+	rd = channel.read(chdata, { seed = 7, p_trunc = 1.0 })
+	numline("ch_trunc_n", rd.bases, rd.dropped)
+
+	rd = channel.read(chdata, { seed = 7, p_burst = 1.0, burst_len = 4 })
+	line("ch_burst", rd.strand)
+
+	rd = channel.read(chdata, { seed = 7, p_sub_gc = 1.0 })
+	line("ch_gc", rd.strand)
+
+	rd = channel.read(chdata, { seed = 7, p_sub_hp = 1.0 })
+	line("ch_hp", rd.strand)
+
+	rd = channel.read(chdata, { seed = 11, p_sub = 0.03, p_ins = 0.02, p_del = 0.02,
+		p_sub_gc = 0.05, p_sub_hp = 0.05, p_burst = 0.04, burst_len = 3, p_trunc = 0.1 })
+	line("ch_combo", rd.strand)
+
+	local plain = channel.read(chdata, { seed = 7 })
+	local cons0 = channel.consensus_read(chdata, { ch = { seed = 7 }, coverage = 0 })
+	local cons1 = channel.consensus_read(chdata, { ch = { seed = 7 }, coverage = 1 })
+	line("ch_cons0", cons0.strand)
+	line("ch_cons1", cons1.strand)
+	numline("ch_cons_eq", read_is(plain, chdata) and 1 or 0,
+		read_is(cons0, chdata) and 1 or 0, read_is(cons1, chdata) and 1 or 0)
+
+	rd = channel.consensus_read(chdata, { ch = { seed = 7, p_sub = 0.05 }, coverage = 5 })
+	line("ch_cons5", rd.strand)
+
+	local rde, cerr = channel.consensus_read(chdata,
+		{ ch = { seed = 7, p_ins = 1.0 }, coverage = 5 })
+	if rde then
+		print("ch_cons_indel ok")
+	else
+		print("ch_cons_indel " .. cerr)
+	end
+
+	local pdata = payload_seed(200, 0xC0FFEE07)
+	local pchr = chromosome.encode(7, pdata, { gene_raw = 64, h = 3, units = 3, flags = 9 })
+	if not pchr then
+		print("ch_pool_chr fail")
+		return
+	end
+	local p = pool.new()
+	pool.add_chromosome(p, pchr)
+	local amp = pool.amplify(p, 1, { p_access = 0.0, p_cross = 0.01, seed = 0x1234,
+		p_primer = 0.05, coverage = 3, ch = { p_sub = 0.01 } })
+	if not amp then
+		print("ch_pool_amp fail")
+	else
+		line("ch_pool", amp.read.strand)
+		numline("ch_pool_n", amp.id, amp.read.dropped)
+	end
+end
+
 scenario_chromosomes()
 scenario_organisms()
+scenario_research()
