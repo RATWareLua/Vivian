@@ -24,6 +24,15 @@ typedef struct vivi_organism {
 	const struct vivi_organism *stem_source;
 } vivi_organism;
 
+/* stable accessors: read an organism without depending on its layout */
+size_t organism_count(const vivi_organism *o);
+int organism_chr_id_at(const vivi_organism *o, size_t i);
+const chr_opts *organism_chr_opts_at(const vivi_organism *o, size_t i);
+int organism_generation(const vivi_organism *o);
+int organism_max_generation(const vivi_organism *o);
+bool organism_is_dead(const vivi_organism *o);
+bool organism_is_stem(const vivi_organism *o);
+
 typedef struct {
 	int chr;            /* chromosome id */
 	vivi_bytes data;     /* mutated raw data (owned) */

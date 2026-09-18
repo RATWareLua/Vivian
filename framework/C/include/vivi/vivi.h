@@ -52,6 +52,17 @@ const char *vivi_strerror(vivi_errc code);
 /* NULL/empty -> VIVI_OK; otherwise a stable code for the message text. */
 vivi_errc vivi_error_code(const char *err);
 
+/* --- stable API -------------------------------------------------------- */
+/* VIVI_API_VERSION pins the stable surface documented in
+ * docs/contracts.md. The research structures (vivi_organism, vivi_cell,
+ * chr_record, genome_gene, ...) stay visible for advanced use, but their
+ * layout is NOT part of that contract: stable code reads them through the
+ * accessors in cell.h / organism.h and never dereferences fields. */
+#define VIVI_API_VERSION_MAJOR 1
+#define VIVI_API_VERSION_MINOR 0
+#define VIVI_API_VERSION ((VIVI_API_VERSION_MAJOR << 16) | VIVI_API_VERSION_MINOR)
+uint32_t vivi_api_version(void);
+
 /* --- portability surface: memory --------------------------------------- */
 typedef void *(*vivi_alloc_fn)(size_t);
 typedef void (*vivi_free_fn)(void *);

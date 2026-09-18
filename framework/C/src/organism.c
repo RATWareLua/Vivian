@@ -46,6 +46,20 @@ void organism_free(vivi_organism *o)
 	vivi_dealloc(o);
 }
 
+size_t organism_count(const vivi_organism *o) { return o ? o->nchr : 0; }
+int organism_chr_id_at(const vivi_organism *o, size_t i)
+{
+	return (o && i < o->nchr) ? o->chr_ids[i] : -1;
+}
+const chr_opts *organism_chr_opts_at(const vivi_organism *o, size_t i)
+{
+	return (o && i < o->nchr) ? &o->chr_opts[i] : nullptr;
+}
+int organism_generation(const vivi_organism *o) { return o ? o->generation : 0; }
+int organism_max_generation(const vivi_organism *o) { return o ? o->max_gen : 0; }
+bool organism_is_dead(const vivi_organism *o) { return o ? o->dead != 0 : true; }
+bool organism_is_stem(const vivi_organism *o) { return o ? o->stem != 0 : false; }
+
 static int organism_alloc_from_homologs(vivi_organism **out, const int *ids,
 	const chr_opts *opts, const uint8_t *const *h0, const size_t *l0,
 	const uint8_t *const *h1, const size_t *l1, size_t nchr, int max_gen)
@@ -231,31 +245,6 @@ static void organism_commit(vivi_organism *o, vivi_organism *next)
 		next->hlen[h] = nullptr;
 	}
 	o->generation = next->generation;
-}
-
-static bool organism_checkpoint_staged(vivi_organism *o, cell_report *rep, const char **err)
-{
-	*rep = (cell_report){ 0 };
-	for (size_t i = 0; i < o->nchr; i++) {
-		vivi_bytes a, b;
-		cell_report r;
-		if (!cell_checkpoint_pair(&a, &b, o->hom[0][i], o->hlen[0][i],
-			o->hom[1][i], o->hlen[1][i], &r, err)) {
-			*rep = (cell_report){ .failed = 1 };
-			return false;
-		}
-		vivi_dealloc(o->hom[0][i]);
-		vivi_dealloc(o->hom[1][i]);
-		o->hom[0][i] = a.data;
-		o->hlen[0][i] = a.len;
-		o->hom[1][i] = b.data;
-		o->hlen[1][i] = b.len;
-		rep->repaired += r.repaired;
-		rep->dead += r.dead;
-		rep->structural += r.structural;
-		rep->anomaly += r.anomaly;
-	}
-	return true;
 }
 
 bool organism_checkpoint_checked(vivi_organism *o, cell_report *rep, const char **err)
@@ -516,11 +505,40 @@ static bool organism_next(vivi_organism **out, const vivi_organism *o, const cha
 		return false;
 	}
 	if (o->generation >= o->max_gen) { *err = "senescent"; return false; }
-	vivi_organism *next = nullptr;
-	if (!organism_clone(&next, o, err)) return false;
-	cell_report rep;
-	if (!organism_checkpoint_staged(next, &rep, err)
-		|| !org_set_generation_all(next, o->generation + 1, err)) {
+	size_t n = o->nchr;
+	vivi_organism *next = vivi_zalloc(1, sizeof(vivi_organism));
+	if (!next) { *err = "out of memory"; return false; }
+	next->nchr = n;
+	next->chr_ids = vivi_alloc(n * sizeof(int));
+	next->chr_opts = vivi_alloc(n * sizeof(chr_opts));
+	for (int h = 0; h < 2; h++) {
+		next->hom[h] = vivi_zalloc(n, sizeof(uint8_t *));
+		next->hlen[h] = vivi_alloc(n * sizeof(size_t));
+	}
+	if (!next->chr_ids || !next->chr_opts || !next->hom[0] || !next->hom[1]
+		|| !next->hlen[0] || !next->hlen[1]) {
+		organism_free(next);
+		*err = "out of memory";
+		return false;
+	}
+	for (size_t i = 0; i < n; i++) {
+		next->chr_ids[i] = o->chr_ids[i];
+		next->chr_opts[i] = o->chr_opts[i];
+		vivi_bytes a, b;
+		cell_report r;
+		if (!cell_checkpoint_pair(&a, &b, o->hom[0][i], o->hlen[0][i],
+			o->hom[1][i], o->hlen[1][i], &r, err)) {
+			organism_free(next);
+			return false;
+		}
+		next->hom[0][i] = a.data;
+		next->hlen[0][i] = a.len;
+		next->hom[1][i] = b.data;
+		next->hlen[1][i] = b.len;
+	}
+	next->max_gen = o->max_gen;
+	next->stem_source = o->stem_source;
+	if (!org_set_generation_all(next, o->generation + 1, err)) {
 		organism_free(next);
 		return false;
 	}

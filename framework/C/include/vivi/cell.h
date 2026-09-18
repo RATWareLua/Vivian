@@ -27,6 +27,13 @@ typedef struct vivi_cell {
 	size_t hlen[2];
 } vivi_cell;
 
+/* stable accessors: read a cell without depending on its layout */
+int cell_chr_id(const vivi_cell *c);
+int cell_generation(const vivi_cell *c);
+int cell_max_generation(const vivi_cell *c);
+bool cell_is_dead(const vivi_cell *c);
+bool cell_is_stem(const vivi_cell *c);
+
 /* low-level machinery (also used by organism.c) */
 [[nodiscard]] bool cell_damage_strand(vivi_bytes *out, const uint8_t *strand, size_t slen, int count,
 	uint32_t seed, const char **err);

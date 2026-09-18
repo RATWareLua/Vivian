@@ -55,7 +55,7 @@ physically survived.
   public.
 - Not a compressor: expect a small, deterministic size overhead (the
   VIV1 container adds ~3%).
-- Not production archival software — it is a rigorous toy: 8987-check test
+- Not production archival software — it is a rigorous toy: 8697-check test
   suite, official Chaskey-12 vectors, ASan-clean, but experimental.
 
 ## Quick start
@@ -67,7 +67,7 @@ beyond the CRT's `memcpy/memset/memcmp`:
 cd framework\C
 build.bat lib        rem framework only -> vivi.lib
 build.bat            rem + test suite + interactive demo
-vivi_test.exe        rem pass=8987 fail=0
+vivi_test.exe        rem pass=8697 fail=0
 build.bat density    rem packing-density report (bits/nt)
 build.bat sim        rem channel experiment sweep (CSV)
 build.bat research   rem full parameter sweeps -> research_*.csv
@@ -255,7 +255,7 @@ models on-strand site dropout. This is the final revision: layout frozen.
         │                  cell.h, organism.h; research: channel.h, pool.h,
         │                  parity.h, rs.h
         ├── src/           the framework itself (no I/O, no CRT assumptions)
-        ├── test/          8987-check self-test, density/sim tools, fuzz harnesses,
+        ├── test/          8697-check self-test, density/sim tools, fuzz harnesses,
         │                  xcheck C<->Lua byte-parity scenarios
         │                  (own entrypoints, hosted; fuzz targets POSIX-only)
         ├── demo/          interactive terminal tamagotchi (own entrypoint, hosted)
@@ -276,7 +276,7 @@ the byte parity enforced in CI.
 
 ## Verification
 
-- **8987/8987** checks: 64 official Chaskey-12 vectors; codec round-trips
+- **8697/8697** checks: 64 official Chaskey-12 vectors; codec round-trips
   for every parameter combination; constraint edge cases; gene/chromosome
   structure and corruption detection; diploid repair, checkpoints,
   senescence, stem rejuvenation; mutations, crossing-over mosaics; VIV1
@@ -293,6 +293,9 @@ the byte parity enforced in CI.
   recovery, organism VIV14/VIV14N/Banshee serialization, damage,
   replication, crossing, mutation) produce identical hex on both sides;
   CI diffs the 45 lines.
+- A versioned stable API (`VIVI_API_VERSION 1.0`): execution contexts,
+  status codes (`vivi_error_code`), read-only `cell_peek` / `organism_peek`,
+  and accessors so stable code never dereferences the advanced structs.
 
 ## Status
 

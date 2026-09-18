@@ -101,6 +101,11 @@ void vivi_dealloc(void *p)
 	if (ctx->free_fn) ctx->free_fn(p);
 }
 
+uint32_t vivi_api_version(void)
+{
+	return VIVI_API_VERSION;
+}
+
 const char *vivi_strerror(vivi_errc code)
 {
 	switch (code) {

@@ -38,36 +38,21 @@ bool cell_damage_strand(vivi_bytes *out, const uint8_t *strand, size_t slen, int
 	}
 	vivi_rng rng;
 	vivi_rng_init(&rng, seed ? seed : 1);
-	/* collect edits against the ORIGINAL strand (last write wins),
-	 * then apply them in one pass -- mirrors the Lua implementation */
-	uint8_t *edits = vivi_zalloc(slen * 4, 1); /* per digit: digit+1, 0 = no edit */
-	if (!edits) { *err = "out of memory"; return false; }
+	/* edits are applied straight onto a copy: each draw reads the ORIGINAL
+	 * digit, so writing in order gives the same last-write-wins result as
+	 * collecting them first -- with no slen*4 scratch array */
+	uint8_t *res = vivi_alloc(slen);
+	if (!res) { *err = "out of memory"; return false; }
+	memcpy(res, strand, slen);
 	for (int i = 0; i < count; i++) {
 		size_t idx = vivi_rng_next(&rng) % n;
 		size_t bytei = idx / 4;
-		int sh = (int)(2 * (3 - idx % 4));
+		int j = (int)(idx % 4);
+		int sh = 2 * (3 - j);
 		int d = (int)((strand[bytei] >> sh) & 3u);
-		/* stored as digit+1; 0 means "no edit" (any new digit is valid) */
-		edits[bytei * 4 + (idx % 4)] =
-			(uint8_t)(((d + 1 + (int)(vivi_rng_next(&rng) % 3)) % 4) + 1);
+		uint32_t nd = (uint32_t)((d + 1 + (int)(vivi_rng_next(&rng) % 3)) % 4);
+		res[bytei] = (uint8_t)((res[bytei] & ~(3u << sh)) | (nd << sh));
 	}
-	uint8_t *res = vivi_alloc(slen);
-	if (!res) {
-		vivi_dealloc(edits);
-		*err = "out of memory";
-		return false;
-	}
-	memcpy(res, strand, slen);
-	for (size_t b = 0; b < slen; b++) {
-		for (int j = 0; j < 4; j++) {
-			uint8_t nd = edits[b * 4 + j];
-			if (nd) {
-				int sh = 2 * (3 - j);
-				res[b] = (uint8_t)((res[b] & ~(3u << sh)) | ((uint32_t)(nd - 1) << sh));
-			}
-		}
-	}
-	vivi_dealloc(edits);
 	out->data = res;
 	out->len = slen;
 	return true;
@@ -326,6 +311,12 @@ void cell_free(vivi_cell *c)
 	for (int h = 0; h < 2; h++) vivi_dealloc(c->hom[h]);
 	vivi_dealloc(c);
 }
+
+int cell_chr_id(const vivi_cell *c) { return c ? c->chr_id : 0; }
+int cell_generation(const vivi_cell *c) { return c ? c->generation : 0; }
+int cell_max_generation(const vivi_cell *c) { return c ? c->max_gen : 0; }
+bool cell_is_dead(const vivi_cell *c) { return c ? c->dead != 0 : true; }
+bool cell_is_stem(const vivi_cell *c) { return c ? c->stem != 0 : false; }
 
 bool cell_checkpoint_checked(vivi_cell *c, cell_report *rep, const char **err)
 {

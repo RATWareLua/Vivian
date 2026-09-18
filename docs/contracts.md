@@ -3,6 +3,29 @@
 This is the fine print: ownership, error handling, limits, determinism and
 the rules that keep the genome model consistent.
 
+## Stable API surface
+
+`VIVI_API_VERSION` (1.0) pins the contract:
+
+- **Status**: `vivi_api_version`, `vivi_strerror`, `vivi_error_code`.
+- **Execution**: `vivi_context_*` (opaque context; allocator + caches).
+- **Bytes and memory**: `vivi_bytes`, `vivi_bytes_free`, the allocator hooks.
+- **Model**: the lifecycle and evolution calls in `organism.h` and `cell.h`,
+  the codec/container calls in `dna.h` / `genome.h` / `chromosome.h`, and the
+  research API in `channel.h` / `pool.h` / `parity.h` / `rs.h`.
+- **Read-only access** to an organism or cell goes through the accessors
+  (`organism_count`, `organism_chr_id_at`, `organism_chr_opts_at`,
+  `organism_generation`, `organism_max_generation`, `organism_is_dead`,
+  `organism_is_stem`, `cell_chr_id`, `cell_generation`,
+  `cell_max_generation`, `cell_is_dead`, `cell_is_stem`); stable code does
+  not dereference struct fields.
+
+Everything else is the advanced, changeable layer: the **layout** of
+`vivi_organism`, `vivi_cell`, `chr_record` and `genome_gene`, and the exact
+wording of error strings. Fields may be appended to those structs and to the
+option structs (`chr_opts`, `vivi_channel_opts`, ...); initialize them with
+designated initializers so additions stay compatible.
+
 ## Memory
 
 ### Allocator

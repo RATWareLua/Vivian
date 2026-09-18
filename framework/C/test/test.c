@@ -882,6 +882,55 @@ static void test_peek(void)
 	}
 }
 
+/* ---------- stable API surface ---------- */
+static void test_stable_api(void)
+{
+	CHECK(vivi_api_version() == VIVI_API_VERSION, "api version matches the header");
+	CHECK(VIVI_API_VERSION_MAJOR >= 1, "api major version");
+
+	CHECK(organism_count(nullptr) == 0, "null organism count");
+	CHECK(organism_is_dead(nullptr), "null organism is dead");
+	CHECK(organism_chr_id_at(nullptr, 0) == -1, "null organism chr_id");
+	CHECK(organism_chr_opts_at(nullptr, 0) == nullptr, "null organism opts");
+	CHECK(cell_is_dead(nullptr), "null cell is dead");
+
+	uint8_t d0[100], d1[60];
+	rands(d0, sizeof(d0));
+	rands(d1, sizeof(d1));
+	int ids[2] = { 4, 9 };
+	chr_opts opts[2] = { { 64, 0, 3, 4, 7, 0, 0, 0 }, { 32, 0, 3, 4, 0, 2, 0, 8 } };
+	const uint8_t *datas[2] = { d0, d1 };
+	const size_t lens[2] = { sizeof(d0), sizeof(d1) };
+	vivi_organism *o = nullptr;
+	const char *err = nullptr;
+	CHECK(organism_stem(&o, ids, opts, datas, lens, 2, 42, &err), "stable api organism");
+	if (o) {
+		CHECK(organism_count(o) == 2, "accessor count");
+		CHECK(organism_chr_id_at(o, 0) == 4 && organism_chr_id_at(o, 1) == 9, "accessor chr ids");
+		CHECK(organism_chr_id_at(o, 2) == -1, "accessor chr id out of range");
+		const chr_opts *co = organism_chr_opts_at(o, 1);
+		CHECK(co && co->gene_raw == 32 && co->inner == 8, "accessor chr opts");
+		CHECK(organism_generation(o) == 0, "accessor generation");
+		CHECK(organism_max_generation(o) == 42, "accessor max generation");
+		CHECK(organism_is_stem(o), "accessor is stem");
+		CHECK(!organism_is_dead(o), "accessor is alive");
+		organism_free(o);
+	}
+
+	vivi_cell *c = nullptr;
+	chr_opts co1 = { 64, 0, 3, 4, 0, 0, 0, 0 };
+	CHECK(cell_stem(&c, 3, d0, sizeof(d0), &co1, &err), "stable api cell");
+	if (c) {
+		CHECK(cell_chr_id(c) == 3, "accessor cell chr_id");
+		CHECK(cell_is_stem(c), "accessor cell is stem");
+		CHECK(!cell_is_dead(c), "accessor cell alive");
+		CHECK(cell_generation(c) == 0 && cell_max_generation(c) == 60, "accessor cell generation");
+		cell_kill(c);
+		CHECK(cell_is_dead(c), "accessor cell dead after kill");
+		cell_free(c);
+	}
+}
+
 /* ---------- pool / random access ---------- */
 static void test_pool(void)
 {
@@ -1683,6 +1732,7 @@ int main(void)
 	test_inner();
 	test_errors();
 	test_peek();
+	test_stable_api();
 	test_pool();
 	test_parity();
 	test_cells();
