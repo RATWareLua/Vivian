@@ -349,9 +349,11 @@ first-class chromosome members (CEN2 centromere, RS reconstruction in
 and the layout freeze. Full design and wire format: [viv14.md](viv14.md).
 
 The Lua reference is at byte parity with the C port for every container
-revision, enforced by the `xcheck` scenario pair in CI. The inner code is a
-C-only research extension (gene usertype bit 1); the Lua port does not yet
-decode it, so `xcheck` does not enable it.
+revision, enforced by the `xcheck` scenario pair in CI. The inner code
+(gene usertype bit 1) is ported too (`framework/luau/rs.lua`), and the
+`xcheck` scenarios cover it: the RS codeword, a two-byte correction, a
+three-byte rejection, an inner-coded chromosome read, and inner inference
+through a Banshee container.
 
 ## Roadmap
 
@@ -361,8 +363,8 @@ decode it, so `xcheck` does not enable it.
 4. **Fuzzing + benchmarks** — done (`test/fuzz/`, `make fuzz-smoke`).
 5. **Formalization** — done.
 6. **Consensus / coverage** — done (`vivi_consensus_read`, `--coverage K`).
-7. **Inner code** — done in C (`vivi/rs.h`, gene usertype bit 1,
-   `chr_opts.inner`, `--inner M`); Lua port pending.
+7. **Inner code** — done in C and Lua (`vivi/rs.h`, `framework/luau/rs.lua`,
+   gene usertype bit 1, `chr_opts.inner`, `--inner M`); `xcheck` covers it.
 8. **Realistic channel** — done (context rates, truncation, bursts:
    `--p-sub-gc`, `--p-sub-hp`, `--p-trunc`, `--p-burst`).
 9. **Equal-redundancy benchmark** — done (`tools/vivi_bench`).

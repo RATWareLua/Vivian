@@ -8,6 +8,7 @@
 #include "vivi/chromosome.h"
 #include "vivi/cell.h"
 #include "vivi/organism.h"
+#include "vivi/rs.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -200,6 +201,97 @@ static void scenario_chromosomes(void)
 	vivi_bytes_free(&c8);
 	vivi_bytes_free(&c9);
 
+	/* inner Reed-Solomon genes */
+	chr_opts oi = { 64, 0, 3, 3, 9, 0, 0, 16 };
+	vivi_bytes ci = { 0 };
+	if (!chr_encode(&ci, 13, data, sizeof(data), &oi, nullptr)) {
+		printf("chr_inner fail\n");
+		return;
+	}
+	hexline("chr_inner", ci.data, ci.len);
+
+	chr_record ric;
+	if (chr_parse(&ric, ci.data, ci.len, -1, nullptr)) {
+		vivi_bytes ird = { 0 };
+		if (chr_read(&ird, &ric, nullptr)) hexline("chr_inner_read", ird.data, ird.len);
+		else printf("chr_inner_read fail\n");
+		vivi_bytes_free(&ird);
+		chr_record_free(&ric);
+	} else {
+		printf("chr_inner_read fail\n");
+	}
+
+	chr_record ri;
+	if (!chr_parse(&ri, ci.data, ci.len, -1, nullptr)) {
+		printf("chr_inner_fields fail\n");
+		return;
+	}
+	printf("chr_inner_fields %d %d %zu\n", ri.cen_version, ri.inner, ri.gene_count);
+	chr_record_free(&ri);
+
+	uint8_t *ib = vivi_alloc(ci.len);
+	if (ib) {
+		memcpy(ib, ci.data, ci.len);
+		chr_record rib;
+		(void)chr_parse(&rib, ib, ci.len, -1, nullptr);
+		ib[rib.genes[0].offset + 12] ^= 0x01;
+		chr_record_free(&rib);
+		chr_record rib2;
+		(void)chr_parse(&rib2, ib, ci.len, -1, nullptr);
+		int idamaged = 0, ifixed = 0;
+		for (size_t k = 0; k < rib2.gene_count; k++) {
+			if (!rib2.genes[k].crc_ok) idamaged++;
+			ifixed += rib2.genes[k].inner_fixed;
+		}
+		printf("chr_inner_damaged %d %d %d\n", idamaged, ifixed, rib2.ngenes);
+		vivi_bytes irec = { 0 };
+		if (chr_read(&irec, &rib2, nullptr)) hexline("chr_inner_recover", irec.data, irec.len);
+		else printf("chr_inner_recover fail\n");
+		vivi_bytes_free(&irec);
+		chr_record_free(&rib2);
+		vivi_dealloc(ib);
+	}
+
+	chr_opts oip = { 64, 0, 3, 3, 9, 2, 0, 16 };
+	vivi_bytes cip = { 0 };
+	if (!chr_encode(&cip, 14, data, sizeof(data), &oip, nullptr)) {
+		printf("chr_inner_parity fail\n");
+		return;
+	}
+	hexline("chr_inner_parity", cip.data, cip.len);
+	vivi_bytes_free(&ci);
+	vivi_bytes_free(&cip);
+
+	/* inner RS codec directly: encode, correct two bytes, reject three */
+	uint8_t kdata[16];
+	payload_seed(kdata, sizeof(kdata), 0x5EEDu);
+	vivi_bytes rscw = { 0 };
+	if (!rs_encode(&rscw, kdata, sizeof(kdata), 4, nullptr)) {
+		printf("rs_encode fail\n");
+		return;
+	}
+	hexline("rs_codeword", rscw.data, rscw.len);
+	uint8_t rsfix[32];
+	memcpy(rsfix, rscw.data, rscw.len);
+	rsfix[2] ^= 0x11;
+	rsfix[9] ^= 0x22;
+	size_t rscor = 0;
+	if (!rs_decode(rsfix, rscw.len, sizeof(kdata), &rscor, nullptr)) {
+		printf("rs_correct fail\n");
+	} else {
+		printf("rs_correct %zu\n", rscor);
+		hexline("rs_corrected", rsfix, sizeof(kdata));
+	}
+	memcpy(rsfix, rscw.data, rscw.len);
+	rsfix[0] ^= 0x07;
+	rsfix[5] ^= 0x08;
+	rsfix[12] ^= 0x09;
+	size_t rscor3 = 0;
+	int rsok3 = rs_decode(rsfix, rscw.len, sizeof(kdata), &rscor3, nullptr);
+	printf("rs_toomany %s\n", rsok3 ? "ok" : "fail");
+	if (rsok3) hexline("rs_toomany_data", rsfix, sizeof(kdata));
+	vivi_bytes_free(&rscw);
+
 	vivi_bytes_free(&c1);
 	vivi_bytes_free(&c2);
 	vivi_bytes_free(&c3);
@@ -337,6 +429,30 @@ static void scenario_organisms(void)
 		organism_free(bo);
 	} else {
 		printf("org14nb_org fail\n");
+	}
+
+	/* inner Reed-Solomon inferred from the genes */
+	chr_opts iopts[2] = { { 64, 0, 3, 3, 0, 0, 0, 0 },
+		{ 64, 0, 3, 3, 5, 2, 0, 16 } };
+	vivi_organism *io = nullptr;
+	if (organism_new(&io, ids, iopts, datas, lens, 2, 40, nullptr)) {
+		vivi_bytes iser = { 0 };
+		if (organism_serialize14nb(&iser, io, nullptr)) {
+			hexline("org14nb_inner", iser.data, iser.len);
+			vivi_organism *il = nullptr;
+			if (organism_deserialize(&il, iser.data, iser.len, nullptr)) {
+				printf("org14nb_inner_infer %d\n", il->chr_opts[1].inner);
+				organism_free(il);
+			} else {
+				printf("org14nb_inner_load fail\n");
+			}
+			vivi_bytes_free(&iser);
+		} else {
+			printf("org14nb_inner fail\n");
+		}
+		organism_free(io);
+	} else {
+		printf("org14nb_inner_org fail\n");
 	}
 
 	organism_free(org);

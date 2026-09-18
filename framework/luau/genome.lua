@@ -32,6 +32,7 @@
 -- Requires bit32 (Luau, Lua 5.2+) and the dna module.
 
 local dna = require("./dna")
+local rs = require("./rs")
 
 local byte, char, concat, sub, find =
 	string.byte, string.char, table.concat, string.sub, string.find
@@ -214,6 +215,7 @@ local function gene_encode(data, opts)
 	local id = opts.id or 0
 	local usertype = opts.type or 0
 	local mode = opts.mode or "dense"
+	local inner = opts.inner or 0
 	if type(id) ~= "number" or id ~= floor(id) or id < 0 or id > 255 then
 		return nil, "invalid id (byte 0..255)"
 	end
@@ -224,25 +226,44 @@ local function gene_encode(data, opts)
 	if mode ~= "dense" and mode ~= "codon" then
 		return nil, "invalid mode (dense|codon)"
 	end
+	if type(inner) ~= "number" or inner ~= floor(inner) or inner < 0 or inner > 64 then
+		return nil, "invalid inner parity (0..64)"
+	end
+	if inner > 0 and mode == "codon" then
+		return nil, "inner code is dense-only"
+	end
 	local rawlen = #data
 	if rawlen > 65535 then return nil, "gene too large (raw > 65535)" end
-	local payload, packedlen
+	local payload, packedlen, typ
 	if mode == "dense" then
 		local h = opts.h or 3
 		if type(h) ~= "number" or h ~= floor(h) or h < 3 or h > 12 then
 			return nil, "invalid h for gene (integer 3..12)"
 		end
-		payload = dna.encode(data, { h = h })
-		if not payload then return nil, "dense payload encode failed" end
-		packedlen = #payload
+		if inner > 0 then
+			if rawlen + inner > 255 then
+				return nil, "inner code needs data + parity <= 255"
+			end
+			local cw = rs.encode(data, rawlen, inner)
+			if not cw then return nil, "inner rs encode failed" end
+			payload = dna.encode(cw, { h = h })
+			if not payload then return nil, "dense payload encode failed" end
+			packedlen = #payload
+			typ = bor(band(usertype, 0xFC), 2)
+		else
+			payload = dna.encode(data, { h = h })
+			if not payload then return nil, "dense payload encode failed" end
+			packedlen = #payload
+			typ = bor(band(usertype, 0xFE), 0)
+		end
 	else
 		local v = values_from_bytes(data)
 		while #v % 4 ~= 0 do v[#v + 1] = 0 end
 		payload = pack_codons(v)
 		packedlen = #payload
+		typ = bor(band(usertype, 0xFE), 1)
 	end
 	if packedlen > 65535 then return nil, "gene too large (packed > 65535)" end
-	local typ = bor(band(usertype, 0xFE), (mode == "codon") and 1 or 0)
 	local hdr = char(id, typ,
 		band(rshift(rawlen, 8), 255), band(rawlen, 255),
 		band(rshift(packedlen, 8), 255), band(packedlen, 255))
@@ -267,18 +288,32 @@ local function parse_gene_at(strand, p)
 	local termi = p + 18 + packedlen
 	if sub(strand, termi, termi + 2) ~= TERM then return nil end
 	local modebit = band(typ, 1)
+	local inner_bit = band(rshift(typ, 1), 1)
 	local payload = sub(strand, p + 12, p + 11 + packedlen)
 	local cv = unpack_codons(sub(strand, p + 12 + packedlen, p + 17 + packedlen), 8)
 	local expected = (cv[1] * 16 + cv[2]) * 0x1000000
 		+ (cv[3] * 16 + cv[4]) * 0x10000
 		+ (cv[5] * 16 + cv[6]) * 0x100
 		+ (cv[7] * 16 + cv[8])
-	local data, crc_ok = nil, false
+	local data, crc_ok, inner_fixed, inner_m = nil, false, 0, 0
 	if modebit == 0 then
 		local raw = dna.decode(payload)
 		if raw then
-			data = sub(raw, 1, rawlen)
-			crc_ok = (#data == rawlen) and chaskey32(data) == expected
+			if inner_bit == 1 and #raw > rawlen and #raw <= 255 then
+				local m = #raw - rawlen
+				if m >= 2 and m <= 64 then
+					local corrected, cor = rs.decode(raw, #raw, rawlen)
+					if corrected then
+						data = sub(corrected, 1, rawlen)
+						crc_ok = (#data == rawlen) and chaskey32(data) == expected
+						inner_fixed = cor
+						inner_m = m
+					end
+				end
+			else
+				data = sub(raw, 1, rawlen)
+				crc_ok = (#data == rawlen) and chaskey32(data) == expected
+			end
 		end
 	else
 		local nv = packedlen * 4 / 3
@@ -299,6 +334,9 @@ local function parse_gene_at(strand, p)
 		data = data,
 		crc_ok = crc_ok,
 		tag32 = expected,
+		inner = inner_bit,
+		inner_m = inner_m,
+		inner_fixed = inner_fixed,
 	}
 end
 

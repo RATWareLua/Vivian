@@ -7,6 +7,7 @@
 
 local chromosome = require("./chromosome")
 local organism = require("./organism")
+local rs = require("./rs")
 
 local byte, char, concat, sub =
 	string.byte, string.char, table.concat, string.sub
@@ -153,6 +154,66 @@ local function scenario_chromosomes()
 	local c9 = chromosome.set_generation(c8, 11)
 	if not c9 then print("chr_banshee_gen11 fail") return end
 	line("chr_banshee_gen11", c9)
+
+	-- inner Reed-Solomon genes
+	local ci = chromosome.encode(13, data,
+		{ gene_raw = 64, h = 3, units = 3, flags = 9, inner = 16 })
+	if not ci then print("chr_inner fail") return end
+	line("chr_inner", ci)
+
+	local ric = chromosome.parse(ci)
+	if ric then
+		local ird = chromosome.read(ric)
+		if ird then line("chr_inner_read", ird) else print("chr_inner_read fail") end
+	else
+		print("chr_inner_read fail")
+	end
+
+	local ri = chromosome.parse(ci)
+	if not ri then print("chr_inner_fields fail") return end
+	numline("chr_inner_fields", ri.cen_version, ri.inner, #ri.genes)
+
+	local ib = ci
+	local rib = chromosome.parse(ib)
+	ib = xor_byte(ib, rib.genes[1].offset + 12, 1)
+	local rib2 = chromosome.parse(ib)
+	local idamaged, ifixed = 0, 0
+	for i = 1, #rib2.genes do
+		local g = rib2.genes[i]
+		if not g.crc_ok then idamaged = idamaged + 1 end
+		ifixed = ifixed + (g.inner_fixed or 0)
+	end
+	numline("chr_inner_damaged", idamaged, ifixed, rib2.ngenes)
+	local irec = chromosome.read(rib2)
+	if irec then line("chr_inner_recover", irec) else print("chr_inner_recover fail") end
+
+	local cip = chromosome.encode(14, data,
+		{ gene_raw = 64, h = 3, units = 3, flags = 9, parity = 2, inner = 16 })
+	if not cip then print("chr_inner_parity fail") return end
+	line("chr_inner_parity", cip)
+
+	-- inner RS codec directly: encode, correct two bytes, reject three
+	local kdata = payload_seed(16, 0x5EED)
+	local rscw = rs.encode(kdata, 16, 4)
+	if not rscw then print("rs_encode fail") return end
+	line("rs_codeword", rscw)
+	local rsfix = rscw
+	rsfix = xor_byte(rsfix, 3, 0x11)
+	rsfix = xor_byte(rsfix, 10, 0x22)
+	local rsdec, rscor = rs.decode(rsfix, #rscw, 16)
+	if not rsdec then
+		print("rs_correct fail")
+	else
+		numline("rs_correct", rscor)
+		line("rs_corrected", sub(rsdec, 1, 16))
+	end
+	local rsfix3 = rscw
+	rsfix3 = xor_byte(rsfix3, 1, 0x07)
+	rsfix3 = xor_byte(rsfix3, 6, 0x08)
+	rsfix3 = xor_byte(rsfix3, 13, 0x09)
+	local rsdec3 = rs.decode(rsfix3, #rscw, 16)
+	print("rs_toomany " .. (rsdec3 and "ok" or "fail"))
+	if rsdec3 then line("rs_toomany_data", sub(rsdec3, 1, 16)) end
 end
 
 local function scenario_organisms()
@@ -249,6 +310,29 @@ local function scenario_organisms()
 		end
 	else
 		print("org14nb_org fail")
+	end
+
+	-- inner Reed-Solomon inferred from the genes
+	local iopts = { o0, { gene_raw = 64, h = 3, units = 3, flags = 5, parity = 2, inner = 16 } }
+	local io = organism.new({
+		{ id = 0, data = d0, opts = iopts[1] },
+		{ id = 1, data = d1, opts = iopts[2] },
+	}, { max_gen = 40 })
+	if io then
+		local iser = organism.serialize14nb(io)
+		if iser then
+			line("org14nb_inner", iser)
+			local il = organism.deserialize(iser)
+			if il then
+				numline("org14nb_inner_infer", il.chr_opts[2].inner)
+			else
+				print("org14nb_inner_load fail")
+			end
+		else
+			print("org14nb_inner fail")
+		end
+	else
+		print("org14nb_inner_org fail")
 	end
 end
 

@@ -117,6 +117,16 @@ local function encode(chr_id, data, opts)
 		or primer < 0 or primer > 65535 then
 		return nil, "invalid primer (integer 0..65535)"
 	end
+	local inner = opts.inner or 0
+	if type(inner) ~= "number" or inner ~= floor(inner) or inner < 0 or inner > 64 then
+		return nil, "invalid inner parity (0..64)"
+	end
+	if inner > 0 and (opts.mode or "dense") == "codon" then
+		return nil, "inner code is dense-only"
+	end
+	if inner > 0 and gene_raw + inner > 255 then
+		return nil, "inner code needs gene_raw + inner <= 255"
+	end
 	local telo = TELUNIT:rep(units)
 	local head = telo
 	if primer > 0 then head = head .. build_primer(primer) end   -- forward site
@@ -126,7 +136,7 @@ local function encode(chr_id, data, opts)
 			return nil, "too many genes (max 256)"
 		end
 		local g, err = genome.gene_encode(sub(data, i, i + gene_raw - 1),
-			{ id = ngenes, mode = opts.mode or "dense", h = opts.h })
+			{ id = ngenes, mode = opts.mode or "dense", h = opts.h, inner = inner })
 		if not g then return nil, "gene encode failed" end
 		ngenes = ngenes + 1
 		genes[ngenes] = g
@@ -153,7 +163,7 @@ local function encode(chr_id, data, opts)
 	local par_genes = {}
 	for j = 1, np do
 		local g, perr2 = genome.gene_encode(shards[ngenes + j],
-			{ id = ngenes + j - 1, type = 2, mode = opts.mode or "dense", h = opts.h })
+			{ id = ngenes + j - 1, type = 2, mode = opts.mode or "dense", h = opts.h, inner = inner })
 		if not g then return nil, "parity gene encode failed: " .. tostring(perr2) end
 		par_genes[j] = g
 	end
@@ -261,8 +271,14 @@ local function parse(strand, opts)
 				packedlen = g.packedlen,
 				offset = base + g.offset, size = g.size,
 				data = g.data, crc_ok = g.crc_ok,
+				inner = g.inner, inner_m = g.inner_m, inner_fixed = g.inner_fixed,
 			}
 		end
+	end
+	local inner_max = 0
+	for i = 1, #genes do
+		local im = genes[i].inner_m or 0
+		if im > inner_max then inner_max = im end
 	end
 	return {
 		strand = strand,
@@ -273,6 +289,7 @@ local function parse(strand, opts)
 		primer = primer, primer_ok = primer_ok, primer_bytes = primer_bytes,
 		telomere_ok = telo_ok, cen_ok = f ~= nil,
 		genes = genes, telomere_bytes = tb, units = units,
+		inner = inner_max,
 	}
 end
 

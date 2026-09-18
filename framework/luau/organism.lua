@@ -27,7 +27,7 @@ local chromosome = require("./chromosome")
 
 local byte, char, concat, sub =
 	string.byte, string.char, table.concat, string.sub
-local floor = math.floor
+local floor, max = math.floor, math.max
 
 local band, bxor, lshift, rshift, bor =
 	bit32.band, bit32.bxor, bit32.lshift, bit32.rshift, bit32.bor
@@ -54,6 +54,7 @@ local function opts_equal(o1, o2)
 		and (o1.units or 4) == (o2.units or 4)
 		and (o1.h or 3) == (o2.h or 3)
 		and (o1.flags or 0) == (o2.flags or 0)
+		and (o1.inner or 0) == (o2.inner or 0)
 end
 
 local function new(specs, opts)
@@ -441,7 +442,7 @@ local function deserialize_viv1(s)
 			return nil, "corrupt chromosome " .. i
 		end
 		ids[i] = cid
-		opts_t[i] = { gene_raw = gene_raw, mode = mode, h = h, units = units, flags = flags }
+		opts_t[i] = { gene_raw = gene_raw, mode = mode, h = h, units = units, flags = flags, inner = 0 }
 		gA[i], gB[i] = strand, strand
 	end
 	return {
@@ -516,6 +517,7 @@ local function deserialize_rev(s, with_parity, with_primers)
 			parity = with_parity and parity_byte or r0.parity,
 			-- Banshee stores the barcode; earlier containers infer it
 			primer = with_primers and primer_byte or r0.primer,
+			inner = max(r0.inner or 0, r1.inner or 0),
 		}
 		gA[i], gB[i] = s0, s1
 	end

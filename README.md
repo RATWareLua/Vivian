@@ -291,7 +291,7 @@ the byte parity enforced in CI.
   shared `xcheck` scenarios (chromosome VIV1/VIV14N/Banshee, parity
   recovery, organism VIV14/VIV14N/Banshee serialization, damage,
   replication, crossing, mutation) produce identical hex on both sides;
-  CI diffs the 33 lines.
+  CI diffs the 45 lines.
 
 ## Status
 
