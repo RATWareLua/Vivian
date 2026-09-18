@@ -17,6 +17,10 @@ framework/C/xcheck_lua.txt
 # Demo save file
 *.viv1
 
+# Optional file CLI (framework/C/tools/vivi_cli)
+framework/C/tools/vivi_cli/vivi_cli
+framework/C/tools/vivi_cli/vivi_cli.exe
+
 # ---------------------------------------------------------------------------
 # Luau interpreter binary: not part of the repository.
 # Grab a build from https://github.com/luau-lang/luau/releases

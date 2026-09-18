@@ -7,10 +7,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#ifdef _WIN32
-#define _CRTDBG_MAP_ALLOC
-#include <crtdbg.h>
-#endif
 #include "vivi/organism.h"
 #include "vivi/channel.h"
 #include "vivi/pool.h"
@@ -23,12 +19,18 @@ static int g_pass = 0, g_fail = 0;
 	else { g_fail++; fprintf(stderr, "FAIL: %s\n", (msg)); } \
 } while (0)
 
-/* With -DVIVI_TEST_TRACK every library allocation is counted, so a
- * non-zero balance at exit is a leak even on platforms without LSan. */
-#ifdef VIVI_TEST_TRACK
-static long g_live;
+/* Every library allocation is counted, so a non-zero balance at exit
+ * is a leak even on platforms without LSan. */
+static long g_live, g_alloc_calls, g_alloc_failures;
+static long g_fail_after = -1;
+static int g_fail_once;
 static void *track_alloc(size_t n)
 {
+	long call = g_alloc_calls++;
+	if (g_fail_after >= 0 && (call == g_fail_after || (!g_fail_once && call > g_fail_after))) {
+		g_alloc_failures++;
+		return nullptr;
+	}
 	void *p = malloc(n ? n : 1);
 	if (p) g_live++;
 	return p;
@@ -38,7 +40,6 @@ static void track_free(void *p)
 	if (p) g_live--;
 	free(p);
 }
-#endif
 
 static uint32_t trnd_state = 0xC0FFEEu;
 static uint32_t trnd(void)
@@ -1088,16 +1089,123 @@ static void test_banshee(void)
 	vivi_bytes_free(&chr);
 }
 
+static vivi_organism *transaction_fixture(size_t nchr)
+{
+	int ids[2] = { 0, 1 };
+	chr_opts opts[2] = { { 16, 1, 3, 4, 0, 0, 0 }, { 16, 1, 3, 4, 0, 0, 0 } };
+	const uint8_t *data[2] = { (const uint8_t *)"transaction data", (const uint8_t *)"second chromosome" };
+	size_t lens[2] = { 16, 17 };
+	vivi_organism *o = nullptr;
+	CHECK(organism_new(&o, ids, opts, data, lens, nchr, 60, nullptr), "transaction fixture");
+	if (o) for (size_t i = 0; i < nchr; i++) o->hom[0][i][0] ^= 1;
+	return o;
+}
+
+static bool transaction_operation(vivi_organism *o, int op, cell_report *rep)
+{
+	vivi_organism *daughter = nullptr;
+	org_mut_result mutation = { 0 };
+	bool ok;
+	switch (op) {
+	case 0: return organism_checkpoint_checked(o, rep, nullptr);
+	case 1: return organism_damage(o, 2, 7, nullptr);
+	case 2: return organism_replicate(o, nullptr);
+	case 3:
+		ok = organism_mitosis(&daughter, o, nullptr);
+		if (!ok) CHECK(!daughter, "failed mitosis output empty");
+		organism_free(daughter);
+		return ok;
+	default:
+		ok = organism_mutate(&mutation, o, 2, 5, nullptr);
+		if (!ok) CHECK(!mutation.data.data, "failed mutation output empty");
+		vivi_bytes_free(&mutation.data);
+		return ok;
+	}
+}
+
+static bool same_bytes(const vivi_bytes *a, const vivi_bytes *b)
+{
+	return a->len == b->len && (!a->len || memcmp(a->data, b->data, a->len) == 0);
+}
+
+static void test_transaction_failures(void)
+{
+	vivi_organism *nul = nullptr;
+	cell_report krep;
+	const char *e2 = nullptr;
+	CHECK(!cell_checkpoint_checked(nullptr, &krep, &e2) && krep.failed, "null cell checkpoint");
+	CHECK(!organism_checkpoint_checked(nul, &krep, &e2) && krep.failed, "null organism checkpoint");
+	CHECK(!cell_checkpoint_checked(nullptr, nullptr, &e2) && e2 != nullptr, "null checkpoint report");
+	CHECK(!organism_checkpoint_checked(nul, nullptr, &e2) && e2 != nullptr, "null checkpoint report org");
+	CHECK(!cell_replicate(nullptr, &e2) && e2 != nullptr, "null cell replicate");
+	CHECK(!organism_replicate(nullptr, &e2) && e2 != nullptr, "null org replicate");
+	vivi_cell *cd = nullptr;
+	CHECK(!cell_mitosis(&cd, nullptr, &e2) && e2 != nullptr && !cd, "null cell mitosis");
+	vivi_organism *od = nullptr;
+	CHECK(!organism_mitosis(&od, nullptr, &e2) && e2 != nullptr && !od, "null organism mitosis");
+	CHECK(!organism_damage(nullptr, 1, 1, &e2) && e2 != nullptr, "null organism damage");
+	org_mut_result mu = { 0 };
+	CHECK(!organism_mutate(&mu, nullptr, 1, 1, &e2) && e2 != nullptr, "null organism mutate");
+	vivi_bytes_free(&mu.data);
+	vivi_cell *rd = nullptr;
+	CHECK(!cell_read(nullptr, rd, &krep, &e2) && e2 != nullptr, "null cell read out");
+	vivi_organism *ro = nullptr;
+	vivi_bytes *kr = (vivi_bytes *)&kr;
+	CHECK(!organism_read(&kr, ro, &krep, &e2) && e2 != nullptr, "null organism read");
+	for (size_t n = 1; n <= 2; n++) {
+		for (int op = 0; op < 5; op++) {
+			vivi_organism *reference = transaction_fixture(n);
+			if (!reference) return;
+			dna_free_caches();
+			g_alloc_calls = 0;
+			cell_report rep;
+			CHECK(transaction_operation(reference, op, &rep), "transaction reference success");
+			long calls = g_alloc_calls;
+			vivi_bytes expected = { 0 };
+			CHECK(organism_serialize14nb(&expected, reference, nullptr), "transaction expected snapshot");
+			organism_free(reference);
+			for (int once = 0; once <= 1; once++) {
+				for (long fail = 0; fail <= calls; fail++) {
+					vivi_organism *o = transaction_fixture(n);
+					if (!o) return;
+					vivi_bytes before = { 0 }, after = { 0 };
+					CHECK(organism_serialize14nb(&before, o, nullptr), "transaction before snapshot");
+					uint8_t *pointers[2][2];
+					for (int h = 0; h < 2; h++)
+						for (size_t i = 0; i < n; i++) pointers[h][i] = o->hom[h][i];
+					dna_free_caches();
+					long live = g_live;
+					g_alloc_calls = g_alloc_failures = 0;
+					g_fail_after = fail;
+					g_fail_once = once;
+					bool ok = transaction_operation(o, op, &rep);
+					g_fail_after = -1;
+					dna_free_caches();
+					long leaked = g_live - live;
+					CHECK(leaked == 0, "transaction allocation balance");
+					CHECK(organism_serialize14nb(&after, o, nullptr), "transaction after snapshot");
+					if (!ok) {
+						CHECK(same_bytes(&before, &after), "failed transaction unchanged");
+						for (int h = 0; h < 2; h++)
+							for (size_t i = 0; i < n; i++)
+								CHECK(pointers[h][i] == o->hom[h][i], "failed transaction pointers unchanged");
+						if (op == 0) CHECK(rep.failed && !rep.repaired && !rep.structural, "checkpoint execution failure report");
+					} else {
+						CHECK(same_bytes(&expected, &after), "transaction success bytes");
+					}
+					vivi_bytes_free(&before);
+					vivi_bytes_free(&after);
+					organism_free(o);
+				}
+			}
+			vivi_bytes_free(&expected);
+		}
+	}
+}
+
 int main(void)
 {
-#ifdef _WIN32
-	_CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE);
-	_CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDERR);
-	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
-#endif
-#ifdef VIVI_TEST_TRACK
 	vivi_set_allocator(track_alloc, track_free);
-#endif
 	test_chaskey();
 	test_dna();
 	test_genome();
@@ -1111,10 +1219,9 @@ int main(void)
 	test_viv14();
 	test_viv14n();
 	test_banshee();
+	test_transaction_failures();
 	dna_free_caches();
-#ifdef VIVI_TEST_TRACK
 	CHECK(g_live == 0, "no leaked allocations");
-#endif
 	printf("\npass=%d fail=%d\n", g_pass, g_fail);
 	return g_fail ? 1 : 0;
 }

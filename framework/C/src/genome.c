@@ -370,6 +370,7 @@ bool genome_gene_scan(genome_scan_result *out, const uint8_t *strand, size_t sle
 				size_t ncap = cap ? cap * 2 : 8;
 				genome_gene *ng = vivi_alloc(ncap * sizeof(genome_gene));
 				if (!ng) {
+					vivi_dealloc(g.data);
 					genome_scan_free(out);
 					*err = "out of memory";
 					return false;

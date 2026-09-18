@@ -43,6 +43,7 @@ void organism_free(vivi_organism *o);
 /* reads every chromosome through the repair machinery; on success
  * out[i] holds the raw data of chr_ids[i] */
 [[nodiscard]] bool organism_read(vivi_bytes **out, vivi_organism *o, cell_report *rep, const char **err);
+[[nodiscard]] bool organism_checkpoint_checked(vivi_organism *o, cell_report *rep, const char **err);
 cell_report organism_checkpoint(vivi_organism *o);
 [[nodiscard]] bool organism_replicate(vivi_organism *o, const char **err);
 [[nodiscard]] bool organism_mitosis(vivi_organism **out, vivi_organism *o, const char **err);

@@ -2,13 +2,23 @@
 #include "vivi/cell.h"
 #include <string.h>
 
-/* absorbs messages when a caller passes err == nullptr */
-static const char *cell_err_sink;
+static bool cell_valid(const vivi_cell *c)
+{
+	return c && !c->dead && c->hom[0] && c->hom[1]
+		&& c->hlen[0] && c->hlen[1];
+}
+
+static bool cell_out_of_memory(const char *err)
+{
+	return err && strcmp(err, "out of memory") == 0;
+}
 
 bool cell_damage_strand(vivi_bytes *out, const uint8_t *strand, size_t slen, int count,
 	uint32_t seed, const char **err)
 {
-	if (!err) err = &cell_err_sink;
+	const char *ignored_error = nullptr;
+	if (!err) err = &ignored_error;
+	if (!out) { *err = "expected output"; return false; }
 	*out = (vivi_bytes){ 0 };
 	if (!strand) { *err = "expected string"; return false; }
 	if (slen > ((size_t)-1) / 4) { *err = "strand too long"; return false; }
@@ -66,9 +76,11 @@ bool cell_damage_strand(vivi_bytes *out, const uint8_t *strand, size_t slen, int
 bool cell_repair_homolog(vivi_bytes *out, const uint8_t *dst, size_t dlen,
 	const uint8_t *src, size_t slen, cell_report *rep, const char **err)
 {
-	if (!err) err = &cell_err_sink;
-	memset(out, 0, sizeof(*out));
-	memset(rep, 0, sizeof(*rep));
+	const char *ignored_error = nullptr;
+	if (!err) err = &ignored_error;
+	if (out) *out = (vivi_bytes){ 0 };
+	if (rep) *rep = (cell_report){ 0 };
+	if (!out || !rep || !dst || !src) { *err = "invalid repair arguments"; return false; }
 	if (dlen != slen) { *err = "homolog length mismatch"; return false; }
 	chr_record recS;
 	if (!chr_parse(&recS, src, slen, -1, err)) return false;
@@ -185,7 +197,8 @@ bool cell_checkpoint_pair(vivi_bytes *a_out, vivi_bytes *b_out,
 	const uint8_t *h1, size_t l1, const uint8_t *h2, size_t l2,
 	cell_report *rep, const char **err)
 {
-	if (!err) err = &cell_err_sink;
+	const char *ignored_error = nullptr;
+	if (!err) err = &ignored_error;
 	memset(rep, 0, sizeof(*rep));
 	vivi_bytes a2, b2, a3;
 	cell_report r1, r2, r3;
@@ -234,7 +247,8 @@ static bool cell_alloc_from_strand(vivi_cell **out, int chr_id, const uint8_t *s
 bool cell_new(vivi_cell **out, int chr_id, const uint8_t *data, size_t len,
 	const chr_opts *opts, const char **err)
 {
-	if (!err) err = &cell_err_sink;
+	const char *ignored_error = nullptr;
+	if (!err) err = &ignored_error;
 	*out = nullptr;
 	vivi_bytes strand;
 	if (!chr_encode(&strand, chr_id, data, len, opts, err)) return false;
@@ -262,7 +276,8 @@ void cell_attach_stem(vivi_cell *c, const vivi_cell *stem)
 
 bool cell_renew(vivi_cell *c, const vivi_cell *stem, const char **err)
 {
-	if (!err) err = &cell_err_sink;
+	const char *ignored_error = nullptr;
+	if (!err) err = &ignored_error;
 	if (!stem || !stem->hom[0]) { *err = "no stem cell"; return false; }
 	chr_record rec;
 	if (!chr_parse(&rec, stem->hom[0], stem->hlen[0], -1, err)) return false;
@@ -312,168 +327,161 @@ void cell_free(vivi_cell *c)
 	vivi_dealloc(c);
 }
 
-cell_report cell_checkpoint(vivi_cell *c)
+bool cell_checkpoint_checked(vivi_cell *c, cell_report *rep, const char **err)
 {
-	cell_report rep;
-	memset(&rep, 0, sizeof(rep));
-	if (c->dead || !c->hom[0]) return rep;
+	const char *ignored_error = nullptr;
+	if (!err) err = &ignored_error;
+	if (!rep) { *err = "expected report"; return false; }
+	*rep = (cell_report){ 0 };
+	if (!cell_valid(c)) {
+		rep->failed = 1;
+		*err = "invalid cell";
+		return false;
+	}
 	vivi_bytes a, b;
-	const char *err;
 	if (!cell_checkpoint_pair(&a, &b, c->hom[0], c->hlen[0], c->hom[1], c->hlen[1],
-		&rep, &err))
-		return rep;
+		rep, err)) {
+		*rep = (cell_report){ .failed = 1 };
+		return false;
+	}
 	vivi_dealloc(c->hom[0]);
 	vivi_dealloc(c->hom[1]);
 	c->hom[0] = a.data;
 	c->hlen[0] = a.len;
 	c->hom[1] = b.data;
 	c->hlen[1] = b.len;
+	return true;
+}
+
+cell_report cell_checkpoint(vivi_cell *c)
+{
+	cell_report rep;
+	(void)cell_checkpoint_checked(c, &rep, nullptr);
 	return rep;
 }
 
 /* strict read: checkpoint + both homologs; no stem fallback */
 static int cell_read_checked(vivi_bytes *out, vivi_cell *c, cell_report *rep, const char **err)
 {
-	*rep = cell_checkpoint(c);
+	if (!cell_checkpoint_checked(c, rep, err)) return 0;
 	for (int h = 0; h < 2; h++) {
 		chr_record rec;
-		if (!chr_parse(&rec, c->hom[h], c->hlen[h], -1, err)) continue;
-		if (rec.cen_ok && chr_read(out, &rec, err)) {
-			chr_record_free(&rec);
-			return 1;
+		*err = nullptr;
+		if (!chr_parse(&rec, c->hom[h], c->hlen[h], -1, err)) {
+			rep->failed = 1;
+			return 0;
 		}
+		bool ok = rec.cen_ok && chr_read(out, &rec, err);
 		chr_record_free(&rec);
+		if (ok) return 1;
+		if (cell_out_of_memory(*err)) { rep->failed = 1; return 0; }
 	}
 	return 0;
 }
 
 bool cell_read(vivi_bytes *out, vivi_cell *c, cell_report *rep, const char **err)
 {
-	if (!err) err = &cell_err_sink;
-	memset(out, 0, sizeof(*out));
-	memset(rep, 0, sizeof(*rep));
-	if (c->dead || !c->hom[0]) {
-		if (c->stem_source && cell_renew(c, c->stem_source, err)) {
-			cell_report r2;
-			if (cell_read_checked(out, c, &r2, err)) {
-				rep->renewed = 1;
-				return true;
-			}
-		}
-		*err = "cell is dead";
+	const char *ignored_error = nullptr;
+	if (!err) err = &ignored_error;
+	if (out) *out = (vivi_bytes){ 0 };
+	if (rep) *rep = (cell_report){ 0 };
+	if (!out || !rep || !c) {
+		if (rep) rep->failed = 1;
+		*err = "invalid read arguments";
 		return false;
 	}
-	if (cell_read_checked(out, c, rep, err)) return true;
-	if (c->stem_source && cell_renew(c, c->stem_source, err)) {
-		cell_report r2;
-		if (cell_read_checked(out, c, &r2, err)) {
+	if (!c->dead && c->hom[0]) {
+		if (cell_read_checked(out, c, rep, err)) return true;
+		if (rep->failed) return false;
+	}
+	if (c->stem_source) {
+		if (!cell_renew(c, c->stem_source, err)) { rep->failed = 1; return false; }
+		if (cell_read_checked(out, c, rep, err)) {
 			rep->renewed = 1;
 			return true;
 		}
+		if (rep->failed) return false;
 	}
 	*err = "cell is dead";
 	return false;
 }
 
+static bool cell_next(vivi_cell **out, const vivi_cell *c, const char **err)
+{
+	if (!cell_valid(c)) { *err = "invalid cell"; return false; }
+	if (c->generation < 0 || c->generation >= 65535) {
+		*err = "generation out of range";
+		return false;
+	}
+	if (c->generation >= c->max_gen) { *err = "senescent"; return false; }
+	vivi_bytes a, b, s;
+	cell_report rep;
+	if (!cell_checkpoint_pair(&a, &b, c->hom[0], c->hlen[0], c->hom[1], c->hlen[1],
+		&rep, err)) return false;
+	bool ok = chr_set_generation(&s, a.data, a.len, c->generation + 1, err);
+	if (!ok && !cell_out_of_memory(*err))
+		ok = chr_set_generation(&s, b.data, b.len, c->generation + 1, err);
+	vivi_bytes_free(&a);
+	vivi_bytes_free(&b);
+	if (!ok) return false;
+	ok = cell_alloc_from_strand(out, c->chr_id, s.data, s.len);
+	vivi_bytes_free(&s);
+	if (!ok) { *err = "out of memory"; return false; }
+	(*out)->generation = c->generation + 1;
+	(*out)->max_gen = c->max_gen;
+	(*out)->stem_source = c->stem_source;
+	return true;
+}
+
+static void cell_commit(vivi_cell *c, vivi_cell *next)
+{
+	for (int h = 0; h < 2; h++) {
+		vivi_dealloc(c->hom[h]);
+		c->hom[h] = next->hom[h];
+		c->hlen[h] = next->hlen[h];
+		next->hom[h] = nullptr;
+	}
+	c->generation = next->generation;
+}
+
 bool cell_replicate(vivi_cell *c, const char **err)
 {
-	if (!err) err = &cell_err_sink;
-	if (c->dead || !c->hom[0]) { *err = "cell is dead"; return false; }
-	cell_checkpoint(c);
-	if (c->generation + 1 > c->max_gen) { *err = "senescent"; return false; }
-	vivi_bytes s;
-	if (!chr_set_generation(&s, c->hom[0], c->hlen[0], c->generation + 1, err)
-		&& !chr_set_generation(&s, c->hom[1], c->hlen[1], c->generation + 1, err)) {
-		return false;
-	}
-	size_t slen = s.len;
-	/* stage both copies first: a failed allocation leaves c at the old generation */
-	uint8_t *n0 = vivi_alloc(slen ? slen : 1);
-	uint8_t *n1 = n0 ? vivi_alloc(slen ? slen : 1) : nullptr;
-	if (!n0 || !n1) {
-		vivi_dealloc(n0);
-		vivi_dealloc(n1);
-		vivi_bytes_free(&s);
-		*err = "out of memory";
-		return false;
-	}
-	memcpy(n0, s.data, slen);
-	memcpy(n1, s.data, slen);
-	vivi_bytes_free(&s);
-	vivi_dealloc(c->hom[0]);
-	vivi_dealloc(c->hom[1]);
-	c->hom[0] = n0;
-	c->hom[1] = n1;
-	c->hlen[0] = c->hlen[1] = slen;
-	c->generation++;
+	const char *ignored_error = nullptr;
+	if (!err) err = &ignored_error;
+	vivi_cell *next = nullptr;
+	if (!cell_next(&next, c, err)) return false;
+	cell_commit(c, next);
+	cell_free(next);
 	return true;
 }
 
 bool cell_mitosis(vivi_cell **out, vivi_cell *c, const char **err)
 {
-	if (!err) err = &cell_err_sink;
+	const char *ignored_error = nullptr;
+	if (!err) err = &ignored_error;
+	if (!out) { *err = "expected output"; return false; }
 	*out = nullptr;
-	if (c->dead || !c->hom[0]) { *err = "cell is dead"; return false; }
-	cell_checkpoint(c);
-	if (c->generation + 1 > c->max_gen) { *err = "senescent"; return false; }
-	vivi_bytes s;
-	if (!chr_set_generation(&s, c->hom[0], c->hlen[0], c->generation + 1, err)
-		&& !chr_set_generation(&s, c->hom[1], c->hlen[1], c->generation + 1, err)) {
-		return false;
-	}
-	size_t slen = s.len;
-	/* stage mother and daughter copies before mutating anything */
-	uint8_t *m0 = vivi_alloc(slen ? slen : 1);
-	uint8_t *m1 = m0 ? vivi_alloc(slen ? slen : 1) : nullptr;
-	uint8_t *d0 = m1 ? vivi_alloc(slen ? slen : 1) : nullptr;
-	uint8_t *d1 = d0 ? vivi_alloc(slen ? slen : 1) : nullptr;
-	if (!m0 || !m1 || !d0 || !d1) {
-		vivi_dealloc(m0);
-		vivi_dealloc(m1);
-		vivi_dealloc(d0);
-		vivi_dealloc(d1);
-		vivi_bytes_free(&s);
+	vivi_cell *next = nullptr, *daughter = nullptr;
+	if (!cell_next(&next, c, err)) return false;
+	if (!cell_alloc_from_strand(&daughter, next->chr_id, next->hom[0], next->hlen[0])) {
+		cell_free(next);
 		*err = "out of memory";
 		return false;
 	}
-	memcpy(m0, s.data, slen);
-	memcpy(m1, s.data, slen);
-	memcpy(d0, s.data, slen);
-	memcpy(d1, s.data, slen);
-	vivi_bytes_free(&s);
-	vivi_cell *daughter = vivi_zalloc(1, sizeof(vivi_cell));
-	if (!daughter) {
-		vivi_dealloc(m0);
-		vivi_dealloc(m1);
-		vivi_dealloc(d0);
-		vivi_dealloc(d1);
-		*err = "out of memory";
-		return false;
-	}
-	/* the mother ages too and carries the new generation (mirrors Lua) */
-	vivi_dealloc(c->hom[0]);
-	vivi_dealloc(c->hom[1]);
-	c->hom[0] = m0;
-	c->hlen[0] = slen;
-	c->hom[1] = m1;
-	c->hlen[1] = slen;
-	c->generation++;
-	daughter->chr_id = c->chr_id;
-	daughter->hom[0] = d0;
-	daughter->hlen[0] = slen;
-	daughter->hom[1] = d1;
-	daughter->hlen[1] = slen;
-	daughter->generation = c->generation;
-	daughter->max_gen = c->max_gen;
-	daughter->stem_source = c->stem_source;
+	daughter->generation = next->generation;
+	daughter->max_gen = next->max_gen;
+	daughter->stem_source = next->stem_source;
+	cell_commit(c, next);
+	cell_free(next);
 	*out = daughter;
 	return true;
 }
 
 bool cell_damage(vivi_cell *c, int count, uint32_t seed, const char **err)
 {
-	if (!err) err = &cell_err_sink;
-	if (c->dead || !c->hom[0]) { *err = "cell is dead"; return false; }
+	const char *ignored_error = nullptr;
+	if (!err) err = &ignored_error;
+	if (!cell_valid(c)) { *err = "invalid cell"; return false; }
 	vivi_bytes a, b;
 	if (!cell_damage_strand(&a, c->hom[0], c->hlen[0], count, seed, err))
 		return false;
@@ -492,35 +500,27 @@ bool cell_damage(vivi_cell *c, int count, uint32_t seed, const char **err)
 
 cell_report cell_maintain(vivi_cell **cells, size_t count, const vivi_cell *stem)
 {
-	cell_report report;
-	memset(&report, 0, sizeof(report));
+	cell_report report = { 0 };
+	if (!cells && count) { report.failed = 1; return report; }
 	for (size_t i = 0; i < count; i++) {
 		vivi_cell *c = cells[i];
-		if (c->dead || !c->hom[0]) {
-			const char *err;
-			if (stem && cell_renew(c, stem, &err)) report.renewed++;
-			else {
-				cell_kill(c);
-				report.dead++;
-			}
-		} else {
-			cell_report rep = cell_checkpoint(c);
-			report.repaired += rep.repaired + rep.structural;
-			vivi_bytes data;
-			const char *err;
-			int ok = cell_read(&data, c, &rep, &err);
-			if (ok) {
-				vivi_bytes_free(&data);
-				if (c->generation >= c->max_gen && stem) {
-					(void)cell_renew(c, stem, &err);
-					report.renewed++;
-				}
-			} else if (stem && cell_renew(c, stem, &err)) {
-				report.renewed++;
-			} else {
-				cell_kill(c);
-				report.dead++;
-			}
+		if (!c) { report.failed++; continue; }
+		const char *err = nullptr;
+		cell_report rep = { 0 };
+		vivi_bytes data = { 0 };
+		bool ok = false;
+		if (!c->dead && c->hom[0]) ok = cell_read(&data, c, &rep, &err);
+		report.repaired += rep.repaired + rep.structural;
+		report.renewed += rep.renewed;
+		vivi_bytes_free(&data);
+		if (rep.failed) { report.failed++; continue; }
+		if (ok && (c->generation < c->max_gen || !stem)) continue;
+		if (stem) {
+			if (cell_renew(c, stem, &err)) report.renewed++;
+			else report.failed++;
+		} else if (!ok) {
+			cell_kill(c);
+			report.dead++;
 		}
 	}
 	return report;

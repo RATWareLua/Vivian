@@ -16,6 +16,7 @@
 typedef struct {
 	int repaired, dead, structural, anomaly;
 	int renewed;   /* set by read/maintain when a stem cell was used */
+	int failed;
 } cell_report;
 
 typedef struct vivi_cell {
@@ -46,6 +47,7 @@ void cell_kill(vivi_cell *c);
 void cell_free(vivi_cell *c);
 
 [[nodiscard]] bool cell_read(vivi_bytes *out, vivi_cell *c, cell_report *rep, const char **err);
+[[nodiscard]] bool cell_checkpoint_checked(vivi_cell *c, cell_report *rep, const char **err);
 cell_report cell_checkpoint(vivi_cell *c);
 [[nodiscard]] bool cell_replicate(vivi_cell *c, const char **err);
 [[nodiscard]] bool cell_mitosis(vivi_cell **out, vivi_cell *c, const char **err);
