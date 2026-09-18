@@ -28,6 +28,8 @@ the rules that keep the genome model consistent.
 |---|---|
 | any function filling a `vivi_bytes *` | `vivi_bytes_free()` |
 | `organism_read` (`vivi_bytes **out`) | `vivi_bytes_free_n(*out, o->nchr)` |
+| `organism_peek` (`vivi_bytes **out`) | `vivi_bytes_free_n(*out, o->nchr)` |
+| `cell_peek` (`vivi_bytes *out`) | `vivi_bytes_free()` |
 | `chr_parse` → `chr_record` | `chr_record_free(&rec)` (frees genes + data) |
 | `genome_gene_scan` result | `genome_scan_free(&res)` |
 | `genome_gene_read` (`genome_gene *out`) | `vivi_dealloc(out->data)` (ownership moves to you) |
@@ -52,6 +54,10 @@ return.
 - `err` may be `nullptr`; the `bool` return is authoritative.
 - `*err` holds a static string and is only meaningful when the call failed.
   Never free it, and don't treat it as stable across calls.
+- `vivi_error_code(err)` classifies that string into a stable `vivi_errc`
+  (`VIVI_ERR_OOM`, `VIVI_ERR_FORMAT`, `VIVI_ERR_CORRUPT`, ...) so callers can
+  branch on the kind of failure; `vivi_strerror(code)` names a code. The
+  classification is stable, the exact message wording is not.
 - `[[nodiscard]]` marks calls whose result you should check.
 
 ## Limits and validation

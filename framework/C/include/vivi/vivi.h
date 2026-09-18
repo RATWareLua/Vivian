@@ -31,6 +31,27 @@ typedef struct vivi_bytes {
 	size_t len;
 } vivi_bytes;
 
+/* --- machine-readable status ------------------------------------------- */
+/* A stable classification of the library's static error strings, so a
+ * caller can branch on the kind of failure instead of matching text. */
+typedef enum vivi_errc {
+	VIVI_OK = 0,
+	VIVI_ERR_ARG,           /* invalid argument from the caller */
+	VIVI_ERR_OOM,           /* allocation failed */
+	VIVI_ERR_FORMAT,        /* malformed input / bad container */
+	VIVI_ERR_CORRUPT,       /* data damaged beyond recovery */
+	VIVI_ERR_LIMIT,         /* a documented limit was exceeded */
+	VIVI_ERR_RANGE,         /* value outside its allowed range */
+	VIVI_ERR_SENESCENT,     /* Hayflick limit reached */
+	VIVI_ERR_INCOMPATIBLE,  /* mismatched genomes or options */
+	VIVI_ERR_DEAD,          /* organism or cell is dead */
+	VIVI_ERR_OTHER
+} vivi_errc;
+
+const char *vivi_strerror(vivi_errc code);
+/* NULL/empty -> VIVI_OK; otherwise a stable code for the message text. */
+vivi_errc vivi_error_code(const char *err);
+
 /* --- portability surface: memory --------------------------------------- */
 typedef void *(*vivi_alloc_fn)(size_t);
 typedef void (*vivi_free_fn)(void *);

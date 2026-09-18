@@ -405,6 +405,49 @@ bool organism_read(vivi_bytes **out, vivi_organism *o, cell_report *rep, const c
 	return false;
 }
 
+bool organism_peek(vivi_bytes **out, const vivi_organism *o, cell_report *rep, const char **err)
+{
+	const char *ignored_error = nullptr;
+	if (!err) err = &ignored_error;
+	if (out) *out = nullptr;
+	if (rep) *rep = (cell_report){ 0 };
+	if (!out || !rep || !o) {
+		if (rep) rep->failed = 1;
+		*err = "invalid read arguments";
+		return false;
+	}
+	if (!organism_valid(o)) { *err = "invalid organism"; return false; }
+	vivi_bytes *tmp = vivi_zalloc(o->nchr, sizeof(vivi_bytes));
+	if (!tmp) { rep->failed = 1; *err = "out of memory"; return false; }
+	for (size_t i = 0; i < o->nchr; i++) {
+		int good = 0;
+		for (int h = 0; h < 2; h++) {
+			chr_record rec;
+			const char *e = nullptr;
+			if (!chr_parse(&rec, o->hom[h][i], o->hlen[h][i], -1, &e)) {
+				if (organism_out_of_memory(e)) { rep->failed = 1; goto oom; }
+				continue;
+			}
+			int ok = rec.cen_ok && chr_read(&tmp[i], &rec, &e);
+			chr_record_free(&rec);
+			if (ok) { good = 1; break; }
+			if (organism_out_of_memory(e)) { rep->failed = 1; goto oom; }
+		}
+		if (!good) {
+			org_karyotype_clear(tmp, o->nchr);
+			*err = "chromosome damaged";
+			return false;
+		}
+	}
+	*out = tmp;
+	return true;
+oom:
+	org_karyotype_clear(tmp, o->nchr);
+	*err = "out of memory";
+	return false;
+}
+
+
 /* stage every rewritten strand before committing, so a failure leaves the
  * organism untouched (generation counter stays in sync with the strands) */
 static int org_set_generation_all(vivi_organism *o, int generation, const char **err)

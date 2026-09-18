@@ -783,6 +783,105 @@ static void test_inner(void)
 	}
 }
 
+/* ---------- machine-readable errors and read-only peek ---------- */
+static void test_errors(void)
+{
+	CHECK(vivi_error_code(nullptr) == VIVI_OK, "error code null is ok");
+	CHECK(vivi_error_code("") == VIVI_OK, "error code empty is ok");
+	CHECK(vivi_error_code("out of memory") == VIVI_ERR_OOM, "error code oom");
+	CHECK(vivi_error_code("senescent") == VIVI_ERR_SENESCENT, "error code senescent");
+	CHECK(vivi_error_code("incompatible genomes") == VIVI_ERR_INCOMPATIBLE, "error code incompatible");
+	CHECK(vivi_error_code("organism dead") == VIVI_ERR_DEAD, "error code dead");
+	CHECK(vivi_error_code("bad magic") == VIVI_ERR_FORMAT, "error code format");
+	CHECK(vivi_error_code("too many genes (max 256)") == VIVI_ERR_LIMIT, "error code limit");
+	CHECK(vivi_error_code("corrupt chromosome") == VIVI_ERR_CORRUPT, "error code corrupt");
+	CHECK(vivi_error_code("invalid probability") == VIVI_ERR_RANGE, "error code range");
+	CHECK(vivi_error_code("invalid id (byte 0..255)") == VIVI_ERR_ARG, "error code arg");
+	CHECK(vivi_strerror(VIVI_ERR_OOM) != nullptr, "strerror oom");
+	CHECK(vivi_strerror(VIVI_ERR_CORRUPT) != nullptr, "strerror corrupt");
+
+	vivi_bytes b = { 0 };
+	const char *e = nullptr;
+	chr_opts badopts = { 0 };
+	badopts.gene_raw = 8;
+	CHECK(!chr_encode(&b, 0, (const uint8_t *)"x", 1, &badopts, &e), "encode rejects bad gene_raw");
+	CHECK(vivi_error_code(e) == VIVI_ERR_ARG, "classified encode error");
+	vivi_bytes_free(&b);
+}
+
+static void test_peek(void)
+{
+	const char *err = nullptr;
+	uint8_t d0[120], d1[80];
+	rands(d0, sizeof(d0));
+	rands(d1, sizeof(d1));
+	int ids[2] = { 0, 1 };
+	chr_opts opts[2] = { { 64, 0, 3, 4, 0, 0, 0, 0 }, { 64, 0, 3, 4, 0, 0, 0, 0 } };
+	const uint8_t *datas[2] = { d0, d1 };
+	const size_t lens[2] = { sizeof(d0), sizeof(d1) };
+	vivi_organism *o = nullptr;
+	CHECK(organism_new(&o, ids, opts, datas, lens, 2, 60, &err), "peek fixture");
+	if (!o) return;
+
+	{
+		vivi_bytes dmg;
+		CHECK(cell_damage_strand(&dmg, o->hom[0][1], o->hlen[0][1], 200, 9, &err), "peek damage");
+		vivi_dealloc(o->hom[0][1]);
+		o->hom[0][1] = dmg.data;
+		o->hlen[0][1] = dmg.len;
+	}
+	vivi_bytes before = { 0 };
+	CHECK(organism_serialize14nb(&before, o, &err), "peek snapshot before");
+	vivi_bytes *pk = nullptr;
+	cell_report rep;
+	CHECK(organism_peek(&pk, o, &rep, &err), "organism peek");
+	CHECK(pk && pk[0].len == sizeof(d0) && memcmp(pk[0].data, d0, sizeof(d0)) == 0, "peek chr0 data");
+	CHECK(pk && pk[1].len == sizeof(d1) && memcmp(pk[1].data, d1, sizeof(d1)) == 0, "peek chr1 data");
+	CHECK(rep.repaired == 0 && rep.structural == 0, "peek does not repair");
+	vivi_bytes after = { 0 };
+	CHECK(organism_serialize14nb(&after, o, &err), "peek snapshot after");
+	CHECK(before.len == after.len && memcmp(before.data, after.data, before.len) == 0,
+		"peek leaves the organism untouched");
+	if (pk) vivi_bytes_free_n(pk, o->nchr);
+	vivi_bytes_free(&before);
+	vivi_bytes_free(&after);
+
+	{
+		vivi_bytes dmg;
+		(void)cell_damage_strand(&dmg, o->hom[0][1], o->hlen[0][1], 4000, 3, &err);
+		vivi_dealloc(o->hom[0][1]);
+		o->hom[0][1] = dmg.data;
+		o->hlen[0][1] = dmg.len;
+		(void)cell_damage_strand(&dmg, o->hom[1][1], o->hlen[1][1], 4000, 3, &err);
+		vivi_dealloc(o->hom[1][1]);
+		o->hom[1][1] = dmg.data;
+		o->hlen[1][1] = dmg.len;
+	}
+	vivi_bytes before2 = { 0 };
+	CHECK(organism_serialize14nb(&before2, o, &err), "peek snapshot2");
+	vivi_bytes *pk2 = nullptr;
+	CHECK(!organism_peek(&pk2, o, &rep, &err), "peek fails on a dead chromosome");
+	CHECK(pk2 == nullptr, "peek output empty on failure");
+	vivi_bytes after2 = { 0 };
+	CHECK(organism_serialize14nb(&after2, o, &err), "peek snapshot2 after");
+	CHECK(before2.len == after2.len && memcmp(before2.data, after2.data, before2.len) == 0,
+		"failed peek leaves the organism untouched");
+	vivi_bytes_free(&before2);
+	vivi_bytes_free(&after2);
+	organism_free(o);
+
+	vivi_cell *c = nullptr;
+	CHECK(cell_new(&c, 0, d0, sizeof(d0), &opts[0], &err), "cell peek fixture");
+	if (c) {
+		vivi_bytes out3 = { 0 };
+		CHECK(cell_peek(&out3, c, &rep, &err), "cell peek");
+		CHECK(out3.len == sizeof(d0) && memcmp(out3.data, d0, sizeof(d0)) == 0, "cell peek data");
+		CHECK(rep.repaired == 0 && rep.failed == 0, "cell peek clean");
+		vivi_bytes_free(&out3);
+		cell_free(c);
+	}
+}
+
 /* ---------- pool / random access ---------- */
 static void test_pool(void)
 {
@@ -1582,6 +1681,8 @@ int main(void)
 	test_consensus();
 	test_context();
 	test_inner();
+	test_errors();
+	test_peek();
 	test_pool();
 	test_parity();
 	test_cells();

@@ -101,6 +101,54 @@ void vivi_dealloc(void *p)
 	if (ctx->free_fn) ctx->free_fn(p);
 }
 
+const char *vivi_strerror(vivi_errc code)
+{
+	switch (code) {
+	case VIVI_OK: return "ok";
+	case VIVI_ERR_ARG: return "invalid argument";
+	case VIVI_ERR_OOM: return "out of memory";
+	case VIVI_ERR_FORMAT: return "bad format";
+	case VIVI_ERR_CORRUPT: return "corrupt or damaged data";
+	case VIVI_ERR_LIMIT: return "limit exceeded";
+	case VIVI_ERR_RANGE: return "value out of range";
+	case VIVI_ERR_SENESCENT: return "senescent";
+	case VIVI_ERR_INCOMPATIBLE: return "incompatible";
+	case VIVI_ERR_DEAD: return "dead";
+	default: return "error";
+	}
+}
+
+static bool err_has(const char *err, const char *needle)
+{
+	return err && strstr(err, needle) != nullptr;
+}
+
+vivi_errc vivi_error_code(const char *err)
+{
+	if (!err || !*err) return VIVI_OK;
+	if (strcmp(err, "out of memory") == 0) return VIVI_ERR_OOM;
+	if (err_has(err, "out of memory")) return VIVI_ERR_OOM;
+	if (err_has(err, "senescent")) return VIVI_ERR_SENESCENT;
+	if (err_has(err, "incompatible")) return VIVI_ERR_INCOMPATIBLE;
+	if (err_has(err, "dead")) return VIVI_ERR_DEAD;
+	if (err_has(err, "bad format") || err_has(err, "bad magic")
+		|| err_has(err, "bad chromosome count") || err_has(err, "bad generation")
+		|| err_has(err, "unsupported flags") || err_has(err, "truncated"))
+		return VIVI_ERR_FORMAT;
+	if (err_has(err, "too many") || err_has(err, "too large") || err_has(err, "too few")
+		|| err_has(err, "too long") || err_has(err, "exceeds") || err_has(err, "4GB"))
+		return VIVI_ERR_LIMIT;
+	if (err_has(err, "corrupt") || err_has(err, "damaged") || err_has(err, "missing")
+		|| err_has(err, "duplicate") || err_has(err, "out of range") || err_has(err, "mismatch")
+		|| err_has(err, "too short") || err_has(err, "homopolymer")
+		|| err_has(err, "invalid transition") || err_has(err, "miscorrection")
+		|| err_has(err, "no roots") || err_has(err, "too many errors"))
+		return VIVI_ERR_CORRUPT;
+	if (err_has(err, "invalid probability")) return VIVI_ERR_RANGE;
+	if (err_has(err, "invalid") || err_has(err, "expected")) return VIVI_ERR_ARG;
+	return VIVI_ERR_OTHER;
+}
+
 bool vivi_buf_reserve(vivi_buf *b, size_t need)
 {
 	if (b->cap >= need) return true;

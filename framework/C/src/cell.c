@@ -412,6 +412,37 @@ bool cell_read(vivi_bytes *out, vivi_cell *c, cell_report *rep, const char **err
 	return false;
 }
 
+bool cell_peek(vivi_bytes *out, const vivi_cell *c, cell_report *rep, const char **err)
+{
+	const char *ignored_error = nullptr;
+	if (!err) err = &ignored_error;
+	if (out) *out = (vivi_bytes){ 0 };
+	if (rep) *rep = (cell_report){ 0 };
+	if (!out || !rep || !c) {
+		if (rep) rep->failed = 1;
+		*err = "invalid read arguments";
+		return false;
+	}
+	if (c->dead || !c->hom[0] || !c->hom[1] || !c->hlen[0] || !c->hlen[1]) {
+		*err = "cell is dead";
+		return false;
+	}
+	for (int h = 0; h < 2; h++) {
+		chr_record rec;
+		const char *e = nullptr;
+		if (!chr_parse(&rec, c->hom[h], c->hlen[h], -1, &e)) {
+			if (cell_out_of_memory(e)) { rep->failed = 1; *err = "out of memory"; return false; }
+			continue;
+		}
+		bool ok = rec.cen_ok && chr_read(out, &rec, &e);
+		chr_record_free(&rec);
+		if (ok) return true;
+		if (cell_out_of_memory(e)) { rep->failed = 1; *err = "out of memory"; return false; }
+	}
+	*err = "cell damaged";
+	return false;
+}
+
 static bool cell_next(vivi_cell **out, const vivi_cell *c, const char **err)
 {
 	if (!cell_valid(c)) { *err = "invalid cell"; return false; }

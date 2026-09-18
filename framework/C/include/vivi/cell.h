@@ -47,6 +47,9 @@ void cell_kill(vivi_cell *c);
 void cell_free(vivi_cell *c);
 
 [[nodiscard]] bool cell_read(vivi_bytes *out, vivi_cell *c, cell_report *rep, const char **err);
+/* inspect without repairing, mutating or renewing: reads whichever homolog
+ * is intact and reports what is observed */
+[[nodiscard]] bool cell_peek(vivi_bytes *out, const vivi_cell *c, cell_report *rep, const char **err);
 [[nodiscard]] bool cell_checkpoint_checked(vivi_cell *c, cell_report *rep, const char **err);
 cell_report cell_checkpoint(vivi_cell *c);
 [[nodiscard]] bool cell_replicate(vivi_cell *c, const char **err);
