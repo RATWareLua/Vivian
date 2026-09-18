@@ -55,7 +55,7 @@ physically survived.
   public.
 - Not a compressor: expect a small, deterministic size overhead (the
   VIV1 container adds ~3%).
-- Not production archival software — it is a rigorous toy: 8697-check test
+- Not production archival software — it is a rigorous toy: 8708-check test
   suite, official Chaskey-12 vectors, ASan-clean, but experimental.
 
 ## Quick start
@@ -67,7 +67,7 @@ beyond the CRT's `memcpy/memset/memcmp`:
 cd framework\C
 build.bat lib        rem framework only -> vivi.lib
 build.bat            rem + test suite + interactive demo
-vivi_test.exe        rem pass=8697 fail=0
+vivi_test.exe        rem pass=8708 fail=0
 build.bat density    rem packing-density report (bits/nt)
 build.bat sim        rem channel experiment sweep (CSV)
 build.bat research   rem full parameter sweeps -> research_*.csv
@@ -166,6 +166,8 @@ their own entrypoints.
 | inner RS code | per-gene parity: corrupted bytes are corrected before the tag check |
 | read coverage | sequence one molecule many times and majority-vote each base |
 | outer RS code | parity genes: any *n* of *n+m* molecules rebuild the payload |
+| fitness function | score a genome; selection keeps the fittest half |
+| population | crossing + point mutation over generations (`vivi/model.h`) |
 
 ## Packing density
 
@@ -253,9 +255,9 @@ models on-strand site dropout. This is the final revision: layout frozen.
     └── C/
         ├── include/vivi/  public API: vivi.h, dna.h, genome.h, chromosome.h,
         │                  cell.h, organism.h; research: channel.h, pool.h,
-        │                  parity.h, rs.h
+        │                  parity.h, rs.h, model.h
         ├── src/           the framework itself (no I/O, no CRT assumptions)
-        ├── test/          8697-check self-test, density/sim tools, fuzz harnesses,
+        ├── test/          8708-check self-test, density/sim tools, fuzz harnesses,
         │                  xcheck C<->Lua byte-parity scenarios
         │                  (own entrypoints, hosted; fuzz targets POSIX-only)
         ├── demo/          interactive terminal tamagotchi (own entrypoint, hosted)
@@ -276,7 +278,7 @@ the byte parity enforced in CI.
 
 ## Verification
 
-- **8697/8697** checks: 64 official Chaskey-12 vectors; codec round-trips
+- **8708/8708** checks: 64 official Chaskey-12 vectors; codec round-trips
   for every parameter combination; constraint edge cases; gene/chromosome
   structure and corruption detection; diploid repair, checkpoints,
   senescence, stem rejuvenation; mutations, crossing-over mosaics; VIV1
@@ -292,7 +294,7 @@ the byte parity enforced in CI.
   shared `xcheck` scenarios (chromosome VIV1/VIV14N/Banshee, parity
   recovery, organism VIV14/VIV14N/Banshee serialization, damage,
   replication, crossing, mutation) produce identical hex on both sides;
-  CI diffs the 45 lines.
+  CI diffs the 68 lines.
 - A versioned stable API (`VIVI_API_VERSION 1.0`): execution contexts,
   status codes (`vivi_error_code`), read-only `cell_peek` / `organism_peek`,
   and accessors so stable code never dereferences the advanced structs.

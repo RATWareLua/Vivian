@@ -23,8 +23,10 @@ Deserializers dispatch on a version prefix (`organism_container_version`:
 
 ## The channel (`vivi/channel.h`)
 
-The channel is a C-only research layer: it never changes the byte format,
-so the Lua port needs no counterpart.
+The channel is a research layer: it never changes the byte format. The Lua
+reference ports it too (`framework/luau/channel.lua`, `pool.lua`) with a
+byte-identical SplitMix64, and `xcheck` diffs the channel, consensus and pool
+scenarios on both sides.
 
 One call turns a pristine packed strand into one **read**:
 
@@ -145,17 +147,19 @@ vivi_sim.exe --size 1024 --gene-raw 64 --access --trials 1000 --p-sub 0.001 ^
              --p-access 0.05 --p-cross 0.01 --p-primer 0.05
 vivi_sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 ^
              --coverage 5
+vivi_sim.exe --size 1024 --gene-raw 64 --library --trials 1000 --p-sub 0.001 ^
+             --coverage-lambda 5
 vivi_sim.exe --in payload.bin --out run.csv --p-sub 0.0005 --p-ins 1e-5 --p-del 1e-5
 ```
 
 One invocation = one CSV row; the first column selects the schema:
 
 ```
-whole:   mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,coverage,inner,trials,
+whole:   mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,coverage,cov_lambda,inner,trials,
          success,wrong,failed,dropped,rate,avg_repaired,avg_structural,avg_dead,avg_anomaly
 access:  mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,p_access,p_cross,p_primer,
-         coverage,inner,trials,success,wrong,failed,dropped,cross,rate
-library: mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,coverage,inner,replicas,
+         coverage,cov_lambda,inner,trials,success,wrong,failed,dropped,cross,rate
+library: mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,coverage,cov_lambda,inner,replicas,
          parity,genes,trials,success,wrong,failed,dropped,rate,avg_present
 ```
 
@@ -236,6 +240,24 @@ K=1, m=0), but it multiplies read cost, so the trade is reads vs. molecules.
 Random access stays bounded by primer dropout (`p_access`), which no amount
 of coverage fixes: the 0.936 ceiling is its 5% loss, not a sequencing error.
 
+### Coverage distribution (`--coverage-lambda`)
+
+Fixed `--coverage K` assumes every molecule gets exactly K reads. Real pools
+do not: `--coverage-lambda L` draws each molecule's read count from
+Poisson(L) (a molecule drawn 0 times is simply absent). 1000 trials:
+
+| mode | fixed K | success | Poisson L | success |
+|---|---|---|---|---|
+| whole | 5 | 1.000 | 5 | 0.977 |
+| library | 5 | 1.000 | 5 | 0.518 |
+| access | 5 | 0.936 | 5 | 0.919 |
+
+The idealized fixed count flatters the result: with a realistic spread some
+whole trials lose a homolog entirely (15 dropped reads) and, far more
+importantly, the library needs all 16 molecules covered, so uneven coverage
+drops it from 1.000 to 0.518 even at the same mean. This is the first place
+where the "coverage distribution" gap in the assumptions bites.
+
 ### Inner code: bounded erasures, and where it stops
 
 | mode | parameters | inner 0 | inner 16 |
@@ -299,13 +321,14 @@ fixed rates, whole-read dropout, whole-read truncation (`p_trunc`), and
 context bias (extra substitutions on G/C and inside homopolymers, plus
 correlated bursts), all deterministic per seed. Per-molecule coverage is
 modelled as `coverage` independent reads with majority voting
-(`vivi_consensus_read`), and the inner code (`vivi/rs.h`) as byte-error
+(`vivi_consensus_read`), or as a Poisson count per molecule
+(`--coverage-lambda`), and the inner code (`vivi/rs.h`) as byte-error
 correction inside a molecule.
 
 Not modelled (yet): PCR amplification bias, per-oligo synthesis dropout
-separate from `p_drop`, base-quality scores, adapter contamination, a full
-coverage *distribution* (coverage is a fixed count), and correlated
-insertion/deletion bursts (only substitutions burst). Treat absolute
+separate from `p_drop`, base-quality scores and soft-decision decoding,
+adapter contamination, and correlated insertion/deletion bursts (only
+substitutions burst). Treat absolute
 numbers as comparative, not as predictions for a specific platform.
 
 ## Related work
@@ -369,5 +392,11 @@ through a Banshee container.
 8. **Realistic channel** — done (context rates, truncation, bursts:
    `--p-sub-gc`, `--p-sub-hp`, `--p-trunc`, `--p-burst`).
 9. **Equal-redundancy benchmark** — done (`tools/vivi_bench`).
+10. **Coverage distribution** — done (`--coverage-lambda`, Poisson reads).
+11. **Model layer** — done (`vivi/model.h`: fitness, population, selection).
+12. **Lua research parity** — done (`framework/luau/channel.lua`, `pool.lua`;
+    byte-identical SplitMix64, `xcheck` covers channel/consensus/pool).
+
+Still open: base-quality scores and soft-decision decoding.
 
 All results are simulation only; no wet-lab claims are made.

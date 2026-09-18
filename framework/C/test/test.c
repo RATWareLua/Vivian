@@ -16,6 +16,7 @@
 #include "vivi/pool.h"
 #include "vivi/parity.h"
 #include "vivi/rs.h"
+#include "vivi/model.h"
 
 static int g_pass = 0, g_fail = 0;
 
@@ -931,6 +932,45 @@ static void test_stable_api(void)
 	}
 }
 
+/* ---------- population / selection model ---------- */
+static double model_fitness(const vivi_bytes *data, size_t nchr, void *ctx)
+{
+	(void)ctx;
+	double s = 0;
+	for (size_t i = 0; i < nchr; i++)
+		for (size_t j = 0; j < data[i].len; j++) s += data[i].data[j];
+	return s;
+}
+
+static void test_model(void)
+{
+	const char *err = nullptr;
+	uint8_t payload[240];
+	rands(payload, sizeof(payload));
+	int ids[2] = { 0, 1 };
+	chr_opts opts[2] = { { 64, 0, 3, 4, 0, 0, 0, 0 }, { 64, 0, 3, 4, 0, 0, 0, 0 } };
+	const uint8_t *datas[2] = { payload, payload };
+	const size_t lens[2] = { sizeof(payload), sizeof(payload) };
+	vivi_population *pop = population_new(ids, opts, datas, lens, 2, 16, 60, 4, 12345, &err);
+	CHECK(pop != nullptr, "population new");
+	if (!pop) return;
+	CHECK(population_size(pop) == 16, "population size");
+	CHECK(population_at(pop, 0) != nullptr, "population member");
+	CHECK(population_at(pop, 16) == nullptr, "population out of range");
+	CHECK(population_evaluate(pop, model_fitness, nullptr, &err), "population evaluate");
+	size_t bi = 999;
+	double best0 = population_best(pop, &bi);
+	CHECK(bi < 16 && best0 > 0.0, "population best initial");
+	CHECK(population_evolve(pop, model_fitness, nullptr, 40, 777, &err), "population evolve");
+	size_t bf = 999;
+	double best1 = population_best(pop, &bf);
+	CHECK(bf < 16, "population best index final");
+	CHECK(best1 >= best0, "fitness does not regress");
+	CHECK(best1 > best0, "fitness improves under selection");
+	CHECK(population_fitness_at(pop, bf) == best1, "fitness accessor matches best");
+	population_free(pop);
+}
+
 /* ---------- pool / random access ---------- */
 static void test_pool(void)
 {
@@ -1733,6 +1773,7 @@ int main(void)
 	test_errors();
 	test_peek();
 	test_stable_api();
+	test_model();
 	test_pool();
 	test_parity();
 	test_cells();

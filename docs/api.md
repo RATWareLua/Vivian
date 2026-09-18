@@ -27,6 +27,38 @@ void vivi_bytes_free_n(vivi_bytes *b, size_t n);  /* n buffers + the array */
 
 `vivi_bytes` is a plain pointer+length view; it is never NUL-terminated.
 
+### Execution context
+
+```c
+typedef struct vivi_context vivi_context;   /* opaque */
+vivi_context *vivi_context_new(vivi_alloc_fn alloc_fn, vivi_free_fn free_fn);
+void          vivi_context_free(vivi_context *ctx);
+vivi_context *vivi_context_enter(vivi_context *ctx);   /* returns previous */
+vivi_context *vivi_context_leave(vivi_context *prev);
+vivi_context *vivi_context_current(void);               /* never NULL */
+void          vivi_context_release_caches(vivi_context *ctx);
+```
+
+A context owns one allocator pair and the codec's lazy caches, so threads
+stay independent. `vivi_set_allocator` configures the process-wide default
+context used when no context is entered.
+
+### Status codes and API version
+
+```c
+typedef enum vivi_errc {
+    VIVI_OK, VIVI_ERR_ARG, VIVI_ERR_OOM, VIVI_ERR_FORMAT, VIVI_ERR_CORRUPT,
+    VIVI_ERR_LIMIT, VIVI_ERR_RANGE, VIVI_ERR_SENESCENT, VIVI_ERR_INCOMPATIBLE,
+    VIVI_ERR_DEAD, VIVI_ERR_OTHER
+} vivi_errc;
+const char *vivi_strerror(vivi_errc code);
+vivi_errc   vivi_error_code(const char *err);   /* classify a message string */
+
+#define VIVI_API_VERSION_MAJOR 1
+#define VIVI_API_VERSION_MINOR 0
+uint32_t vivi_api_version(void);
+```
+
 ### Growable buffer (for embedders)
 
 ```c
@@ -563,3 +595,51 @@ void vivi_parity_release(uint8_t **shards, size_t count);
   `"too few shards"`.
 - Encoders allocate all output buffers and null entries on failure;
   release with `vivi_parity_release` (it does not free the arrays).
+
+---
+
+## `rs.h` — inner byte Reed-Solomon code (research layer)
+
+```c
+#define RS_MAX_N 255
+[[nodiscard]] bool rs_encode(vivi_bytes *out, const uint8_t *data, size_t k, size_t m,
+    const char **err);
+[[nodiscard]] bool rs_decode(uint8_t *cw, size_t n, size_t k, size_t *corrected,
+    const char **err);
+```
+
+- Systematic RS over GF(256) (`0x11D`): `k` data bytes plus `m` parity bytes,
+  `n = k + m <= 255`; the decoder locates and corrects up to `floor(m/2)`
+  unknown byte errors (Berlekamp-Massey + Chien + a Vandermonde solve).
+- A gene carries it through the usertype bit 1 (see `genome_gene_encode_inner`
+  in `genome.h` and `chr_opts.inner`); the parity count is self-describing.
+
+---
+
+## `model.h` — population and selection (research layer)
+
+```c
+typedef struct vivi_population vivi_population;   /* opaque */
+typedef double (*vivi_fitness_fn)(const vivi_bytes *data, size_t nchr, void *ctx);
+
+vivi_population *population_new(const int *ids, const chr_opts *opts,
+    const uint8_t *const *seed_datas, const size_t *seed_lens, size_t nchr,
+    size_t pop_size, int max_gen, uint32_t diversity, uint32_t seed, const char **err);
+void population_free(vivi_population *pop);
+size_t population_size(const vivi_population *pop);
+const vivi_organism *population_at(const vivi_population *pop, size_t i);
+double population_fitness_at(const vivi_population *pop, size_t i);
+bool population_evaluate(vivi_population *pop, vivi_fitness_fn fn, void *ctx, const char **err);
+bool population_step(vivi_population *pop, vivi_fitness_fn fn, void *ctx, uint32_t seed, const char **err);
+bool population_evolve(vivi_population *pop, vivi_fitness_fn fn, void *ctx, int generations,
+    uint32_t seed, const char **err);
+double population_best(const vivi_population *pop, size_t *index);
+```
+
+- Every member starts from the same seed genome; members after the first are
+  diversified with `diversity` raw bit-flips.
+- `population_evaluate` reads each genome with `organism_peek` (read-only) and
+  scores it; a genome that cannot be read scores lowest.
+- `population_step` keeps the fittest half and refills it with children made
+  by `organism_cross` plus a one-bit `organism_mutate`, all deterministic per
+  seed; `population_evolve` repeats it.

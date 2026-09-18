@@ -11,8 +11,9 @@ the rules that keep the genome model consistent.
 - **Execution**: `vivi_context_*` (opaque context; allocator + caches).
 - **Bytes and memory**: `vivi_bytes`, `vivi_bytes_free`, the allocator hooks.
 - **Model**: the lifecycle and evolution calls in `organism.h` and `cell.h`,
-  the codec/container calls in `dna.h` / `genome.h` / `chromosome.h`, and the
-  research API in `channel.h` / `pool.h` / `parity.h` / `rs.h`.
+  the codec/container calls in `dna.h` / `genome.h` / `chromosome.h`, the
+  research API in `channel.h` / `pool.h` / `parity.h` / `rs.h`, and the
+  population layer in `model.h`.
 - **Read-only access** to an organism or cell goes through the accessors
   (`organism_count`, `organism_chr_id_at`, `organism_chr_opts_at`,
   `organism_generation`, `organism_max_generation`, `organism_is_dead`,
