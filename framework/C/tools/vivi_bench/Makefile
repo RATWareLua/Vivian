@@ -6,10 +6,10 @@ LIBSRC  := ../../src/vivi.c ../../src/dna.c ../../src/genome.c \
 
 .PHONY: all clean
 
-all: vivi_cli
+all: vivi_bench
 
-vivi_cli: vivi_cli.c $(LIBSRC) $(wildcard ../../include/vivi/*.h)
-	$(CC) $(CFLAGS) -o $@ vivi_cli.c $(LIBSRC)
+vivi_bench: bench.c $(LIBSRC) $(wildcard ../../include/vivi/*.h)
+	$(CC) $(CFLAGS) -o $@ bench.c $(LIBSRC)
 
 clean:
-	rm -f vivi_cli vivi_cli.exe
+	rm -f vivi_bench vivi_bench.exe

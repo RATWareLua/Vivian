@@ -33,7 +33,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	if (dna_complement(&comp, data, size, nullptr)) vivi_bytes_free(&comp);
 	comp = (vivi_bytes){ 0 };
 	if (dna_reverse_complement(&comp, data, size, nullptr)) vivi_bytes_free(&comp);
-	vivi_channel_opts ch = { 0.01, 0.001, 0.001, 0.01, (uint32_t)size + 1u };
+	vivi_channel_opts ch = { 0.01, 0.001, 0.001, 0.01, (uint32_t)size + 1u,
+		0.0, 0.0, 0.0, 0.0, 0u };
 	vivi_read rd;
 	if (vivi_channel_read(&rd, data, size, &ch, nullptr))
 		vivi_bytes_free(&rd.strand);

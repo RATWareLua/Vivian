@@ -5,7 +5,7 @@
 #include "vivi/organism.h"
 
 typedef struct {
-	int gene_raw, parity, primer, codon, h, units, max_gen;
+	int gene_raw, parity, primer, codon, h, units, max_gen, inner;
 	int damage;
 	uint32_t seed;
 } cli_opts;
@@ -25,6 +25,7 @@ static void usage(void)
 		"options:\n"
 		"  --gene-raw N   raw bytes per gene (16..65535, default 1024)\n"
 		"  --parity M     parity genes per chromosome (0..16, default 0)\n"
+		"  --inner M      inner RS parity bytes per gene (2..64, default 0)\n"
 		"  --primer B     on-strand barcode (0..65535, default 0 = off)\n"
 		"  --codon        codon payload instead of dense\n"
 		"  --h H          dense homopolymer limit (3..12, default 3)\n"
@@ -111,6 +112,7 @@ static int build_organism(vivi_organism **out, const uint8_t *payload, size_t pl
 		opts[i].units = co->units;
 		opts[i].parity = co->parity;
 		opts[i].primer = co->primer;
+		opts[i].inner = co->inner;
 	}
 	int ok = organism_new(out, ids, opts, datas, lens, nchr, co->max_gen, err);
 	free(ids); free(datas); free(lens); free(opts);
@@ -259,8 +261,8 @@ static int do_inspect(const uint8_t *in, size_t in_len)
 			char rawbuf[32];
 			if (rec.cen_version == 2) snprintf(rawbuf, sizeof(rawbuf), "%zu", rec.rawlen);
 			else snprintf(rawbuf, sizeof(rawbuf), "n/a");
-			printf("  chr %d: genes=%zu parity=%d rawlen=%s gen=%d cen=%d tel=%d primer=%d gene_raw=%d\n",
-				o->chr_ids[i], rec.gene_count, rec.parity, rawbuf, rec.generation,
+			printf("  chr %d: genes=%zu parity=%d inner=%d rawlen=%s gen=%d cen=%d tel=%d primer=%d gene_raw=%d\n",
+				o->chr_ids[i], rec.gene_count, rec.parity, rec.inner, rawbuf, rec.generation,
 				rec.cen_ok, rec.telomere_ok, rec.primer, gene_raw);
 			chr_record_free(&rec);
 		} else {
@@ -322,7 +324,7 @@ static int do_verify(const uint8_t *in, size_t in_len)
 
 int main(int argc, char **argv)
 {
-	cli_opts co = { 1024, 0, 0, 0, 3, 4, 60, 0, 1 };
+	cli_opts co = { 1024, 0, 0, 0, 3, 4, 60, 0, 0, 1 };
 	if (argc < 3) { usage(); return 2; }
 	const char *cmd = argv[1];
 	const char *in_path = argv[2];
@@ -348,6 +350,9 @@ int main(int argc, char **argv)
 		} else if (strcmp(a, "--primer") == 0) {
 			if (!parse_int(val, 0, 65535, &v)) { fprintf(stderr, "%s: bad --primer\n", prog); return 2; }
 			co.primer = (int)v;
+		} else if (strcmp(a, "--inner") == 0) {
+			if (!parse_int(val, 2, 64, &v)) { fprintf(stderr, "%s: bad --inner\n", prog); return 2; }
+			co.inner = (int)v;
 		} else if (strcmp(a, "--h") == 0) {
 			if (!parse_int(val, 3, 12, &v)) { fprintf(stderr, "%s: bad --h\n", prog); return 2; }
 			co.h = (int)v;

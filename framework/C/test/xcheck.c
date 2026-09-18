@@ -33,7 +33,7 @@ static void scenario_chromosomes(void)
 	payload_seed(data, sizeof(data), 0xC0FFEE01u);
 	hexline("payload200", data, sizeof(data));
 
-	chr_opts o1 = { 64, 0, 3, 3, 9, 0, 0 };   /* gene_raw, codon, h, units, flags, parity */
+	chr_opts o1 = { 64, 0, 3, 3, 9, 0, 0, 0 };   /* gene_raw, codon, h, units, flags, parity */
 	vivi_bytes c1 = { 0 };
 	if (!chr_encode(&c1, 7, data, sizeof(data), &o1, nullptr)) {
 		printf("chr_dense fail\n");
@@ -41,7 +41,7 @@ static void scenario_chromosomes(void)
 	}
 	hexline("chr_dense", c1.data, c1.len);
 
-	chr_opts o2 = { 64, 1, 3, 3, 9, 0, 0 };
+	chr_opts o2 = { 64, 1, 3, 3, 9, 0, 0, 0 };
 	vivi_bytes c2 = { 0 };
 	if (!chr_encode(&c2, 7, data, sizeof(data), &o2, nullptr)) {
 		printf("chr_codon fail\n");
@@ -56,7 +56,7 @@ static void scenario_chromosomes(void)
 	}
 	hexline("chr_gen5", c3.data, c3.len);
 
-	chr_opts o4 = { 64, 0, 3, 3, 9, 2, 0 };
+	chr_opts o4 = { 64, 0, 3, 3, 9, 2, 0, 0 };
 	vivi_bytes c4 = { 0 };
 	if (!chr_encode(&c4, 7, data, sizeof(data), &o4, nullptr)) {
 		printf("chr_par2 fail\n");
@@ -64,7 +64,7 @@ static void scenario_chromosomes(void)
 	}
 	hexline("chr_par2", c4.data, c4.len);
 
-	chr_opts o5 = { 48, 1, 3, 3, 9, 3, 0 };
+	chr_opts o5 = { 48, 1, 3, 3, 9, 3, 0, 0 };
 	vivi_bytes c5 = { 0 };
 	if (!chr_encode(&c5, 8, data, sizeof(data), &o5, nullptr)) {
 		printf("chr_par3_codon fail\n");
@@ -129,7 +129,7 @@ static void scenario_chromosomes(void)
 	hexline("chr_par2_gen7", c6.data, c6.len);
 
 	/* parity-only reconstruction: erase every data gene, keep the parity */
-	chr_opts o7 = { 64, 0, 3, 3, 9, 4, 0 };
+	chr_opts o7 = { 64, 0, 3, 3, 9, 4, 0, 0 };
 	vivi_bytes c7 = { 0 };
 	if (!chr_encode(&c7, 9, data, sizeof(data), &o7, nullptr)) {
 		printf("chr_par4 fail\n");
@@ -157,7 +157,7 @@ static void scenario_chromosomes(void)
 	}
 
 	/* VIV14NB4NSH33: on-strand primer sites */
-	chr_opts o8 = { 64, 0, 3, 3, 9, 2, 1234 };
+	chr_opts o8 = { 64, 0, 3, 3, 9, 2, 1234, 0 };
 	vivi_bytes c8 = { 0 };
 	if (!chr_encode(&c8, 11, data, sizeof(data), &o8, nullptr)) {
 		printf("chr_banshee fail\n");
@@ -218,7 +218,7 @@ static void scenario_organisms(void)
 	payload_seed(e1, sizeof(e1), 4);
 
 	int ids[2] = { 0, 1 };
-	chr_opts opts[2] = { { 64, 0, 3, 3, 0, 0, 0 }, { 64, 0, 3, 3, 5, 2, 0 } };
+	chr_opts opts[2] = { { 64, 0, 3, 3, 0, 0, 0, 0 }, { 64, 0, 3, 3, 5, 2, 0, 0 } };
 	const uint8_t *datas[2] = { d0, d1 };
 	size_t lens[2] = { sizeof(d0), sizeof(d1) };
 	vivi_organism *org = nullptr;
@@ -312,7 +312,7 @@ static void scenario_organisms(void)
 	vivi_bytes_free(&sr);
 
 	/* VIV14NB4NSH33 container */
-	chr_opts bopts[2] = { { 64, 0, 3, 3, 0, 0, 0 }, { 64, 0, 3, 3, 5, 2, 1234 } };
+	chr_opts bopts[2] = { { 64, 0, 3, 3, 0, 0, 0, 0 }, { 64, 0, 3, 3, 5, 2, 1234, 0 } };
 	vivi_organism *bo = nullptr;
 	if (organism_new(&bo, ids, bopts, datas, lens, 2, 40, nullptr)) {
 		vivi_bytes bser = { 0 };

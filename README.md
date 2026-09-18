@@ -55,7 +55,7 @@ physically survived.
   public.
 - Not a compressor: expect a small, deterministic size overhead (the
   VIV1 container adds ~3%).
-- Not production archival software — it is a rigorous toy: 9442-check test
+- Not production archival software — it is a rigorous toy: 9485-check test
   suite, official Chaskey-12 vectors, ASan-clean, but experimental.
 
 ## Quick start
@@ -67,7 +67,7 @@ beyond the CRT's `memcpy/memset/memcmp`:
 cd framework\C
 build.bat lib        rem framework only -> vivi.lib
 build.bat            rem + test suite + interactive demo
-vivi_test.exe        rem pass=9442 fail=0
+vivi_test.exe        rem pass=9485 fail=0
 build.bat density    rem packing-density report (bits/nt)
 build.bat sim        rem channel experiment sweep (CSV)
 build.bat research   rem full parameter sweeps -> research_*.csv
@@ -162,6 +162,9 @@ their own entrypoints.
 | point mutation | a real bit-flip in payload, re-encoded with a fresh tag |
 | crossing-over | two parents → one per-gene mosaic child |
 | VIV1 container | versioned serialization of the whole organism |
+| inner RS code | per-gene parity: corrupted bytes are corrected before the tag check |
+| read coverage | sequence one molecule many times and majority-vote each base |
+| outer RS code | parity genes: any *n* of *n+m* molecules rebuild the payload |
 
 ## Packing density
 
@@ -248,12 +251,14 @@ models on-strand site dropout. This is the final revision: layout frozen.
     │                      byte-compatible with the C port)
     └── C/
         ├── include/vivi/  public API: vivi.h, dna.h, genome.h, chromosome.h,
-        │                  cell.h, organism.h
+        │                  cell.h, organism.h; research: channel.h, pool.h,
+        │                  parity.h, rs.h
         ├── src/           the framework itself (no I/O, no CRT assumptions)
-        ├── test/          9442-check self-test, density/sim tools, fuzz harnesses,
+        ├── test/          9485-check self-test, density/sim tools, fuzz harnesses,
         │                  xcheck C<->Lua byte-parity scenarios
         │                  (own entrypoints, hosted; fuzz targets POSIX-only)
         ├── demo/          interactive terminal tamagotchi (own entrypoint, hosted)
+        ├── tools/         separate modules: vivi_cli (file CLI), vivi_bench (benchmark)
         ├── vivi.lib       built with build.bat lib / make lib
         ├── build.bat      all | lib | test | density | sim | research | xcheck | asan | clean
         └── Makefile       all | lib | test | demo | density | sim | research | xcheck | fuzz | asan | clean
@@ -270,11 +275,13 @@ the byte parity enforced in CI.
 
 ## Verification
 
-- **9442/9442** checks: 64 official Chaskey-12 vectors; codec round-trips
+- **9485/9485** checks: 64 official Chaskey-12 vectors; codec round-trips
   for every parameter combination; constraint edge cases; gene/chromosome
   structure and corruption detection; diploid repair, checkpoints,
   senescence, stem rejuvenation; mutations, crossing-over mosaics; VIV1
-  through Banshee round-trips, parity reconstruction and primer dropout.
+  through Banshee round-trips, parity reconstruction and primer dropout;
+  channel context/truncation/burst behaviour, consensus coverage, and the
+  inner Reed-Solomon decoder up to its correction radius.
 - AddressSanitizer-clean: `build.bat asan` / `make asan` runs the suite
   under ASan. The codec's lazy tables are released at exit
   (`dna_free_caches()`), so a CRT leak check is clean as well.

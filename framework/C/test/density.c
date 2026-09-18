@@ -80,7 +80,7 @@ static void chromosome_row(size_t n, fill_fn fill, const char *pname)
 {
 	uint8_t *data = vivi_alloc(n);
 	fill(data, n);
-	chr_opts co = { 1024, 0, 3, 4, 0, 0, 0 };
+	chr_opts co = { 1024, 0, 3, 4, 0, 0, 0, 0 };
 	const char *err = nullptr;
 	vivi_bytes strand = { 0 };
 	if (!chr_encode(&strand, 1, data, n, &co, &err)) {

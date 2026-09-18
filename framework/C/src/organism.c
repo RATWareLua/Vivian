@@ -591,7 +591,8 @@ bool organism_cross(vivi_organism **out, vivi_organism *pa, vivi_organism *pb,
 			|| a->codon != b->codon
 			|| (a->h ? a->h : 3) != (b->h ? b->h : 3)
 			|| (a->units ? a->units : 4) != (b->units ? b->units : 4)
-			|| a->flags != b->flags) {
+			|| a->flags != b->flags
+			|| a->inner != b->inner) {
 			*err = "incompatible chromosome opts";
 			return false;
 		}
@@ -953,6 +954,9 @@ static bool organism_deserialize_viv1(vivi_organism **out, const uint8_t *s, siz
 		opts_t[i].h = h;
 		opts_t[i].units = units;
 		opts_t[i].flags = flags;
+		opts_t[i].parity = 0;
+		opts_t[i].primer = 0;
+		opts_t[i].inner = 0;
 		g[i] = vivi_alloc(slen ? slen : 1);
 		if (!g[i]) { *err = "out of memory"; ok = 0; break; }
 		memcpy(g[i], s + pos, slen);
@@ -1048,9 +1052,11 @@ static bool organism_deserialize_rev(vivi_organism **out, const uint8_t *s, size
 		int cen0 = ok0 && r0.cen_ok && r0.id == cid;
 		int cen_parity = (ok0 && r0.cen_ok) ? r0.parity : 0;
 		int cen_primer = (ok0 && r0.cen_ok) ? r0.primer : 0;
+		int cen_inner = ok0 ? r0.inner : 0;
 		if (ok0) chr_record_free(&r0);
 		int ok1 = chr_parse(&r1, g1[i], sl1, -1, err);
 		int cen1 = ok1 && r1.cen_ok && r1.id == cid;
+		if (ok1 && r1.inner > cen_inner) cen_inner = r1.inner;
 		if (ok1) chr_record_free(&r1);
 		if (!ok0 || !ok1 || (!cen0 && !cen1)) {
 			*err = "corrupt chromosome";
@@ -1067,6 +1073,8 @@ static bool organism_deserialize_rev(vivi_organism **out, const uint8_t *s, size
 		opts_t[i].parity = with_parity ? parity : cen_parity;
 		/* Banshee stores the barcode; earlier containers infer it */
 		opts_t[i].primer = with_primers ? primer : cen_primer;
+		/* the inner code is self-describing inside the genes */
+		opts_t[i].inner = cen_inner;
 		l0[i] = sl0;
 		l1[i] = sl1;
 	}

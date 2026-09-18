@@ -37,6 +37,13 @@ uint32_t genome_chaskey32(const uint8_t *s, size_t len);
 [[nodiscard]] bool genome_gene_encode(vivi_bytes *out, int id, int usertype, int codon_mode, int h,
 	const uint8_t *data, size_t len, const char **err);
 
+/* as above, but the dense payload carries an inner Reed-Solomon code with
+ * inner_m parity bytes (usertype bit 1 is set); the gene holds the data
+ * inline so up to floor(inner_m/2) byte errors are corrected before the
+ * tag check. Dense mode only, data + inner_m <= 255. */
+[[nodiscard]] bool genome_gene_encode_inner(vivi_bytes *out, int id, int usertype, int codon_mode,
+	int h, int inner_m, const uint8_t *data, size_t len, const char **err);
+
 typedef struct {
 	int id, type;
 	int codon;        /* payload mode: 0 = dense, 1 = codon */
@@ -45,6 +52,9 @@ typedef struct {
 	size_t size;      /* total gene bytes: 21 + packedlen */
 	int crc_ok;
 	uint32_t tag;     /* expected tag (decoded from the codon section) */
+	int inner;        /* gene carries an inner RS code (usertype bit 1) */
+	int inner_m;      /* inner parity byte count found on the strand */
+	int inner_fixed;  /* byte errors repaired by the inner decoder */
 	uint8_t *data;    /* decoded raw data (NULL if undecodable) */
 	size_t data_len;
 } genome_gene;

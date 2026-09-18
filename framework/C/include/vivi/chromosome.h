@@ -26,6 +26,7 @@ typedef struct {
 	int flags;      /* user byte */
 	int parity;     /* VIV14N: parity genes appended (0..16, 0 = off) */
 	int primer;     /* VIV14NB4NSH33: on-strand barcode 1..65535 (0 = off) */
+	int inner;      /* per-gene inner RS parity bytes (0 = off; dense only) */
 } chr_opts;
 
 typedef struct {
@@ -36,6 +37,7 @@ typedef struct {
 	int primer;          /* VIV14NB4NSH33: barcode, 0 = no primer sites */
 	int primer_ok;       /* both sites valid and carrying the same barcode */
 	int primer_bytes;    /* PRIMERBYTES when the left site anchors the layout */
+	int inner;           /* per-gene inner RS parity bytes found on the strand */
 	int telomere_ok, cen_ok;
 	size_t telomere_bytes;
 	genome_gene *genes;

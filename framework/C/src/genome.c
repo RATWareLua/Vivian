@@ -1,5 +1,6 @@
 /* genome.c -- genes, codon code and Chaskey-12, transliteration of genome.lua */
 #include "vivi/genome.h"
+#include "vivi/rs.h"
 #include <string.h>
 
 /* absorbs messages when a caller passes err == nullptr */
@@ -176,6 +177,49 @@ bool genome_bytes_from_values(vivi_bytes *out, const int *values, size_t nvalues
 
 /* ---- genes ---- */
 
+static bool gene_frame(vivi_bytes *out, int id, int typ, const vivi_bytes *payload,
+	const uint8_t *data, size_t len, const char **err)
+{
+	int packedlen = (int)payload->len;
+	if (packedlen > 65535) { *err = "gene too large (packed > 65535)"; return false; }
+	uint8_t hdr[6] = { (uint8_t)id, (uint8_t)typ,
+		(uint8_t)((len >> 8) & 255), (uint8_t)(len & 255),
+		(uint8_t)((packedlen >> 8) & 255), (uint8_t)(packedlen & 255) };
+	int hv[12];
+	(void)genome_values_from_bytes(hv, 12, hdr, 6);
+	vivi_bytes hdrp;
+	if (!genome_pack_codons(&hdrp, hv, 12, err)) return false;
+	uint32_t tag = genome_chaskey32(data, len);
+	uint8_t tb[4] = { (uint8_t)((tag >> 24) & 255), (uint8_t)((tag >> 16) & 255),
+		(uint8_t)((tag >> 8) & 255), (uint8_t)(tag & 255) };
+	int tv[8];
+	(void)genome_values_from_bytes(tv, 8, tb, 4);
+	vivi_bytes tagp;
+	if (!genome_pack_codons(&tagp, tv, 8, err)) {
+		vivi_bytes_free(&hdrp);
+		return false;
+	}
+	size_t total = 3 + 9 + payload->len + 6 + 3;
+	out->data = vivi_alloc(total);
+	if (!out->data) {
+		vivi_bytes_free(&hdrp);
+		vivi_bytes_free(&tagp);
+		*err = "out of memory";
+		return false;
+	}
+	size_t pos = 0;
+	memcpy(out->data + pos, genome_PROM, 3); pos += 3;
+	memcpy(out->data + pos, hdrp.data, hdrp.len); pos += hdrp.len;
+	memcpy(out->data + pos, payload->data, payload->len); pos += payload->len;
+	memcpy(out->data + pos, tagp.data, tagp.len); pos += tagp.len;
+	memcpy(out->data + pos, genome_TERM, 3);
+	out->len = total;
+	vivi_bytes_free(&hdrp);
+	vivi_bytes_free(&tagp);
+	return true;
+}
+
+
 bool genome_gene_encode(vivi_bytes *out, int id, int usertype, int codon_mode, int h,
 	const uint8_t *data, size_t len, const char **err)
 {
@@ -189,7 +233,6 @@ bool genome_gene_encode(vivi_bytes *out, int id, int usertype, int codon_mode, i
 		return false;
 	}
 	vivi_bytes payload = { 0 };
-	int packedlen;
 	if (!codon_mode) {
 		dna_opts dopts = { h, 0.05 };
 		if (!dna_encode(&payload, data, len, &dopts, err)) return false;
@@ -206,54 +249,41 @@ bool genome_gene_encode(vivi_bytes *out, int id, int usertype, int codon_mode, i
 		}
 		vivi_dealloc(vals);
 	}
-	packedlen = (int)payload.len;
-	if (packedlen > 65535) {
-		vivi_bytes_free(&payload);
-		*err = "gene too large (packed > 65535)";
-		return false;
-	}
 	int typ = (usertype & 0xFE) | (codon_mode ? 1 : 0);
-	uint8_t hdr[6] = { (uint8_t)id, (uint8_t)typ,
-		(uint8_t)((len >> 8) & 255), (uint8_t)(len & 255),
-		(uint8_t)((packedlen >> 8) & 255), (uint8_t)(packedlen & 255) };
-	int hv[12];
-	(void)genome_values_from_bytes(hv, 12, hdr, 6);
-	vivi_bytes hdrp;
-	if (!genome_pack_codons(&hdrp, hv, 12, err)) {
-		vivi_bytes_free(&payload);
-		return false;
-	}
-	uint32_t tag = genome_chaskey32(data, len);
-	uint8_t tb[4] = { (uint8_t)((tag >> 24) & 255), (uint8_t)((tag >> 16) & 255),
-		(uint8_t)((tag >> 8) & 255), (uint8_t)(tag & 255) };
-	int tv[8];
-	(void)genome_values_from_bytes(tv, 8, tb, 4);
-	vivi_bytes tagp;
-	if (!genome_pack_codons(&tagp, tv, 8, err)) {
-		vivi_bytes_free(&payload);
-		vivi_bytes_free(&hdrp);
-		return false;
-	}
-	size_t total = 3 + 9 + payload.len + 6 + 3;
-	out->data = vivi_alloc(total);
-	if (!out->data) {
-		vivi_bytes_free(&payload);
-		vivi_bytes_free(&hdrp);
-		vivi_bytes_free(&tagp);
-		*err = "out of memory";
-		return false;
-	}
-	size_t pos = 0;
-	memcpy(out->data + pos, genome_PROM, 3); pos += 3;
-	memcpy(out->data + pos, hdrp.data, hdrp.len); pos += hdrp.len;
-	memcpy(out->data + pos, payload.data, payload.len); pos += payload.len;
-	memcpy(out->data + pos, tagp.data, tagp.len); pos += tagp.len;
-	memcpy(out->data + pos, genome_TERM, 3);
-	out->len = total;
+	bool ok = gene_frame(out, id, typ, &payload, data, len, err);
 	vivi_bytes_free(&payload);
-	vivi_bytes_free(&hdrp);
-	vivi_bytes_free(&tagp);
-	return true;
+	return ok;
+}
+
+bool genome_gene_encode_inner(vivi_bytes *out, int id, int usertype, int codon_mode,
+	int h, int inner_m, const uint8_t *data, size_t len, const char **err)
+{
+	if (!err) err = &genome_err_sink;
+	if (out) *out = (vivi_bytes){ 0 };
+	if (inner_m <= 0)
+		return genome_gene_encode(out, id, usertype, codon_mode, h, data, len, err);
+	if (codon_mode) { *err = "inner code is dense-only"; return false; }
+	if (id < 0 || id > 255) { *err = "invalid id (byte 0..255)"; return false; }
+	if (usertype < 0 || usertype > 255) { *err = "invalid type (byte 0..255)"; return false; }
+	if (h < 3 || h > 12) { *err = "invalid h for gene (integer 3..12)"; return false; }
+	if (len > 65535) { *err = "gene too large (raw > 65535)"; return false; }
+	if ((size_t)inner_m > RS_MAX_N || len + (size_t)inner_m > RS_MAX_N) {
+		*err = "inner code needs data + parity <= 255";
+		return false;
+	}
+	vivi_bytes cw = { 0 };
+	if (!rs_encode(&cw, data, len, (size_t)inner_m, err)) return false;
+	vivi_bytes payload = { 0 };
+	dna_opts dopts = { h, 0.05 };
+	if (!dna_encode(&payload, cw.data, cw.len, &dopts, err)) {
+		vivi_bytes_free(&cw);
+		return false;
+	}
+	vivi_bytes_free(&cw);
+	int typ = (usertype & 0xFC) | 2;   /* dense + inner-code bit */
+	bool ok = gene_frame(out, id, typ, &payload, data, len, err);
+	vivi_bytes_free(&payload);
+	return ok;
 }
 
 static int gene_parse_at(genome_gene *g, const uint8_t *strand, size_t slen, size_t p)
@@ -270,6 +300,7 @@ static int gene_parse_at(genome_gene *g, const uint8_t *strand, size_t slen, siz
 	size_t termi = p + 18 + (size_t)packedlen;
 	if (memcmp(strand + termi, genome_TERM, 3) != 0) return 0;
 	int modebit = typ & 1;
+	int inner_bit = (typ >> 1) & 1;
 	size_t payload_off = p + 12;
 	size_t payload_len = (size_t)packedlen;
 	int tv[8];
@@ -282,15 +313,39 @@ static int gene_parse_at(genome_gene *g, const uint8_t *strand, size_t slen, siz
 	uint8_t *data = nullptr;
 	size_t data_len = 0;
 	int crc_ok = 0;
+	int inner_fixed = 0;
+	int inner_m_val = 0;
 	if (modebit == 0) {
 		vivi_bytes raw;
 		if (dna_decode(&raw, strand + payload_off, payload_len, nullptr)) {
-			data_len = (raw.len <= (size_t)rawlen) ? raw.len : (size_t)rawlen;
-			data = vivi_alloc(data_len ? data_len : 1);
-			if (data) {
-				if (data_len) memcpy(data, raw.data, data_len);
-				crc_ok = (data_len == (size_t)rawlen)
-					&& genome_chaskey32(data, data_len) == expected;
+			if (inner_bit && raw.len > (size_t)rawlen && raw.len <= RS_MAX_N) {
+				size_t m = raw.len - (size_t)rawlen;
+				if (m >= 2 && m <= 64) {
+					uint8_t *buf = vivi_alloc(raw.len);
+					if (buf) {
+						memcpy(buf, raw.data, raw.len);
+						size_t cor = 0;
+						if (rs_decode(buf, raw.len, (size_t)rawlen, &cor, nullptr)) {
+							data = vivi_alloc(rawlen ? rawlen : 1);
+							if (data) {
+								memcpy(data, buf, rawlen);
+								data_len = rawlen;
+								crc_ok = genome_chaskey32(data, data_len) == expected;
+								inner_fixed = (int)cor;
+								inner_m_val = (int)m;
+							}
+						}
+						vivi_dealloc(buf);
+					}
+				}
+			} else {
+				data_len = (raw.len <= (size_t)rawlen) ? raw.len : (size_t)rawlen;
+				data = vivi_alloc(data_len ? data_len : 1);
+				if (data) {
+					if (data_len) memcpy(data, raw.data, data_len);
+					crc_ok = (data_len == (size_t)rawlen)
+						&& genome_chaskey32(data, data_len) == expected;
+				}
 			}
 			vivi_bytes_free(&raw);
 		}
@@ -325,6 +380,9 @@ static int gene_parse_at(genome_gene *g, const uint8_t *strand, size_t slen, siz
 	g->size = 21 + (size_t)packedlen;
 	g->crc_ok = crc_ok;
 	g->tag = expected;
+	g->inner = inner_bit;
+	g->inner_m = inner_m_val;
+	g->inner_fixed = inner_fixed;
 	if (crc_ok) {
 		g->data = data;
 		g->data_len = data_len;

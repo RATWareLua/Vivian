@@ -11,6 +11,7 @@
 #include "vivi/channel.h"
 #include "vivi/pool.h"
 #include "vivi/parity.h"
+#include "vivi/rs.h"
 
 static int g_pass = 0, g_fail = 0;
 
@@ -297,7 +298,7 @@ static void test_chromosome(void)
 	uint8_t data[500];
 	rands(data, 500);
 	vivi_bytes chr;
-	chr_opts co = { 1024, 0, 3, 4, 0, 0, 0 };
+	chr_opts co = { 1024, 0, 3, 4, 0, 0, 0, 0 };
 	CHECK(chr_encode(&chr, 1, data, 500, &co, &err), "chr encode");
 	chr_record rec;
 	CHECK(chr_parse(&rec, chr.data, chr.len, -1, &err), "chr parse");
@@ -314,7 +315,7 @@ static void test_chromosome(void)
 	/* multi-gene */
 	uint8_t big[5000];
 	rands(big, 5000);
-	chr_opts co2 = { 1024, 0, 3, 4, 0, 0, 0 };
+	chr_opts co2 = { 1024, 0, 3, 4, 0, 0, 0, 0 };
 	(void)chr_encode(&chr, 2, big, 5000, &co2, &err);
 	(void)chr_parse(&rec, chr.data, chr.len, -1, &err);
 	CHECK(rec.ngenes == 5, "5 genes for 5000B @1024");
@@ -377,17 +378,17 @@ static void test_channel(void)
 	rands(src, sizeof(src));
 	const char *err;
 	vivi_read rd;
-	vivi_channel_opts z = { 0, 0, 0, 0, 7 };
+	vivi_channel_opts z = { 0, 0, 0, 0, 7, 0.0, 0.0, 0.0, 0.0, 0 };
 	CHECK(vivi_channel_read(&rd, src, sizeof(src), &z, &err), "channel identity");
 	CHECK(!rd.dropped && rd.bases == 32 && rd.strand.len == 8
 		&& memcmp(rd.strand.data, src, 8) == 0, "channel identity bytes");
 	vivi_bytes_free(&rd.strand);
 
-	vivi_channel_opts drop = { 0, 0, 0, 1.0, 7 };
+	vivi_channel_opts drop = { 0, 0, 0, 1.0, 7, 0.0, 0.0, 0.0, 0.0, 0 };
 	CHECK(vivi_channel_read(&rd, src, sizeof(src), &drop, &err), "channel drop");
 	CHECK(rd.dropped && rd.strand.data == nullptr && rd.bases == 0, "channel dropped read");
 
-	vivi_channel_opts sub = { 1.0, 0, 0, 0, 123 };
+	vivi_channel_opts sub = { 1.0, 0, 0, 0, 123, 0.0, 0.0, 0.0, 0.0, 0 };
 	CHECK(vivi_channel_read(&rd, src, sizeof(src), &sub, &err), "channel substitution");
 	CHECK(!rd.dropped && rd.bases == 32 && rd.strand.len == 8, "substitution keeps shape");
 	int changed = 0;
@@ -405,16 +406,16 @@ static void test_channel(void)
 	vivi_bytes_free(&rd2.strand);
 	vivi_bytes_free(&rd.strand);
 
-	vivi_channel_opts ins = { 0, 1.0, 0, 0, 4 };
+	vivi_channel_opts ins = { 0, 1.0, 0, 0, 4, 0.0, 0.0, 0.0, 0.0, 0 };
 	CHECK(vivi_channel_read(&rd, src, sizeof(src), &ins, &err), "channel insertion");
 	CHECK(!rd.dropped && rd.bases == 64 && rd.strand.len == 16, "insertion doubles bases");
 	vivi_bytes_free(&rd.strand);
 
-	vivi_channel_opts del = { 0, 0, 1.0, 0, 4 };
+	vivi_channel_opts del = { 0, 0, 1.0, 0, 4, 0.0, 0.0, 0.0, 0.0, 0 };
 	CHECK(vivi_channel_read(&rd, src, sizeof(src), &del, &err), "channel deletion");
 	CHECK(!rd.dropped && rd.bases == 0 && rd.strand.data == nullptr, "deletion empties read");
 
-	vivi_channel_opts bad = { 1.5, 0, 0, 0, 1 };
+	vivi_channel_opts bad = { 1.5, 0, 0, 0, 1, 0.0, 0.0, 0.0, 0.0, 0 };
 	CHECK(!vivi_channel_read(&rd, src, sizeof(src), &bad, &err), "channel rejects bad rate");
 	(void)err;
 
@@ -433,6 +434,79 @@ static void test_channel(void)
 	vivi_bytes_free(&dec);
 }
 
+static int read_digit(const vivi_read *r, size_t i)
+{
+	return (int)((r->strand.data[i / 4] >> (2 * (3 - i % 4))) & 3u);
+}
+
+static void test_realistic_channel(void)
+{
+	const char *err = nullptr;
+	static const uint8_t strand[8] = { 0x1B, 0xE4, 0x09, 0x7A, 0xC6, 0x33, 0x90, 0x5D };
+	vivi_read rd;
+
+	vivi_channel_opts pin = { 0.1, 0, 0, 0, 7, 0.0, 0.0, 0.0, 0.0, 0 };
+	CHECK(vivi_channel_read(&rd, strand, 8, &pin, &err), "realistic pinned read");
+	static const uint8_t want[8] = { 0x3B, 0xE4, 0x09, 0x7A, 0xC6, 0x33, 0xA0, 0x4D };
+	CHECK(rd.strand.len == 8 && memcmp(rd.strand.data, want, 8) == 0,
+		"pinned stream unchanged when new rates are zero");
+	vivi_bytes_free(&rd.strand);
+
+	static const uint8_t gcstrand[2] = { 0x1B, 0x1B };
+	vivi_channel_opts gco = { 0, 0, 0, 0, 11, 1.0, 0.0, 0.0, 0.0, 0 };
+	CHECK(vivi_channel_read(&rd, gcstrand, 2, &gco, &err), "gc-biased read");
+	CHECK(!rd.dropped && rd.bases == 8, "gc-biased keeps shape");
+	static const int gc_orig[8] = { 0, 1, 2, 3, 0, 1, 2, 3 };
+	int gc_ok = 1;
+	for (size_t i = 0; i < 8; i++) {
+		int o = gc_orig[i], b = read_digit(&rd, i);
+		if ((o == 1 || o == 2) ? (b == o) : (b != o)) gc_ok = 0;
+	}
+	CHECK(gc_ok, "p_sub_gc substitutes G/C and leaves A/T");
+	vivi_bytes_free(&rd.strand);
+
+	static const uint8_t hpstrand[2] = { 0x06, 0xAC };
+	vivi_channel_opts hpo = { 0, 0, 0, 0, 13, 0.0, 1.0, 0.0, 0.0, 0 };
+	CHECK(vivi_channel_read(&rd, hpstrand, 2, &hpo, &err), "hp-biased read");
+	CHECK(!rd.dropped && rd.bases == 8, "hp-biased keeps shape");
+	static const int hp_orig[8] = { 0, 0, 1, 2, 2, 2, 3, 0 };
+	int hp_ok = 1;
+	for (size_t i = 0; i < 8; i++) {
+		int o = hp_orig[i], b = read_digit(&rd, i);
+		int homopolymer = i > 0 && o == hp_orig[i - 1];
+		if (homopolymer ? (b == o) : (b != o)) hp_ok = 0;
+	}
+	CHECK(hp_ok, "p_sub_hp substitutes only homopolymer bases");
+	vivi_bytes_free(&rd.strand);
+
+	vivi_channel_opts tro = { 0, 0, 0, 0, 21, 0.0, 0.0, 1.0, 0.0, 0 };
+	CHECK(vivi_channel_read(&rd, strand, 8, &tro, &err), "trunc read");
+	CHECK(!rd.dropped && rd.bases >= 1 && rd.bases < 32, "p_trunc shortens the read");
+	vivi_bytes_free(&rd.strand);
+
+	vivi_channel_opts buo = { 0, 0, 0, 0, 31, 0.0, 0.0, 0.0, 1.0, 4 };
+	CHECK(vivi_channel_read(&rd, strand, 8, &buo, &err), "burst read");
+	CHECK(!rd.dropped && rd.bases == 32, "burst keeps shape");
+	int run = 0, maxrun = 0;
+	for (size_t i = 0; i < 32; i++) {
+		int orig = (int)((strand[i / 4] >> (2 * (3 - i % 4))) & 3u);
+		if (read_digit(&rd, i) != orig) { run++; if (run > maxrun) maxrun = run; }
+		else run = 0;
+	}
+	CHECK(maxrun >= 4, "p_burst substitutes a run of at least 4");
+	vivi_bytes_free(&rd.strand);
+
+	vivi_channel_opts badgc = { 0, 0, 0, 0, 1, 1.5, 0.0, 0.0, 0.0, 0 };
+	CHECK(!vivi_channel_read(&rd, strand, 8, &badgc, &err)
+		&& err && strcmp(err, "invalid probability") == 0, "rejects bad p_sub_gc");
+	vivi_channel_opts badhp = { 0, 0, 0, 0, 1, 0.0, 1.5, 0.0, 0.0, 0 };
+	CHECK(!vivi_channel_read(&rd, strand, 8, &badhp, &err), "rejects bad p_sub_hp");
+	vivi_channel_opts badtr = { 0, 0, 0, 0, 1, 0.0, 0.0, 2.0, 0.0, 0 };
+	CHECK(!vivi_channel_read(&rd, strand, 8, &badtr, &err), "rejects bad p_trunc");
+	vivi_channel_opts badbu = { 0, 0, 0, 0, 1, 0.0, 0.0, 0.0, -0.001, 0 };
+	CHECK(!vivi_channel_read(&rd, strand, 8, &badbu, &err), "rejects bad p_burst");
+}
+
 /* ---------- consensus / coverage ---------- */
 static void test_consensus(void)
 {
@@ -441,7 +515,7 @@ static void test_consensus(void)
 	rands(src, sizeof(src));
 	size_t n = sizeof(src) * 4;
 
-	vivi_channel_opts ch = { 0.05, 0, 0, 0, 99 };
+	vivi_channel_opts ch = { 0.05, 0, 0, 0, 99, 0.0, 0.0, 0.0, 0.0, 0 };
 	vivi_read plain;
 	CHECK(vivi_channel_read(&plain, src, sizeof(src), &ch, &err), "consensus plain read");
 
@@ -461,7 +535,7 @@ static void test_consensus(void)
 		"coverage 0 matches the plain channel");
 	vivi_bytes_free(&c0.strand);
 
-	vivi_channel_opts id = { 0, 0, 0, 0, 5 };
+	vivi_channel_opts id = { 0, 0, 0, 0, 5, 0.0, 0.0, 0.0, 0.0, 0 };
 	vivi_consensus_opts idc = { id, 9 };
 	vivi_read ri;
 	CHECK(vivi_consensus_read(&ri, src, sizeof(src), &idc, &err), "consensus identity");
@@ -488,18 +562,18 @@ static void test_consensus(void)
 	vivi_bytes_free(&rc.strand);
 	vivi_bytes_free(&rc2.strand);
 
-	vivi_channel_opts drop = { 0, 0, 0, 1.0, 3 };
+	vivi_channel_opts drop = { 0, 0, 0, 1.0, 3, 0.0, 0.0, 0.0, 0.0, 0 };
 	vivi_consensus_opts dropc = { drop, 5 };
 	vivi_read rdrop;
 	CHECK(vivi_consensus_read(&rdrop, src, sizeof(src), &dropc, &err), "consensus drop");
 	CHECK(rdrop.dropped && rdrop.strand.data == nullptr, "consensus with all reads dropped");
 
-	vivi_channel_opts ins = { 0, 1.0, 0, 0, 8 };
+	vivi_channel_opts ins = { 0, 1.0, 0, 0, 8, 0.0, 0.0, 0.0, 0.0, 0 };
 	vivi_consensus_opts insc = { ins, 3 };
 	vivi_read rins;
 	CHECK(!vivi_consensus_read(&rins, src, sizeof(src), &insc, &err),
 		"consensus rejects insertions");
-	vivi_channel_opts del = { 0, 0, 1.0, 0, 8 };
+	vivi_channel_opts del = { 0, 0, 1.0, 0, 8, 0.0, 0.0, 0.0, 0.0, 0 };
 	vivi_consensus_opts delc = { del, 3 };
 	CHECK(!vivi_consensus_read(&rins, src, sizeof(src), &delc, &err),
 		"consensus rejects deletions");
@@ -511,20 +585,110 @@ static void test_consensus(void)
 	vivi_bytes_free(&plain.strand);
 }
 
+/* ---------- inner RS code ---------- */
+static void test_inner(void)
+{
+	const char *err;
+	const size_t ks[3] = { 16, 64, 200 };
+	const size_t ms[3] = { 4, 16, 32 };
+	for (int c = 0; c < 3; c++) {
+		size_t k = ks[c], m = ms[c], n = k + m;
+		uint8_t data[200];
+		rands(data, k);
+		vivi_bytes cw = { 0 };
+		CHECK(rs_encode(&cw, data, k, m, &err), "inner rs encode");
+		CHECK(cw.len == n, "inner rs length");
+		uint8_t buf[255];
+		memcpy(buf, cw.data, n);
+		size_t cor = 99;
+		CHECK(rs_decode(buf, n, k, &cor, &err) && cor == 0
+			&& memcmp(buf, data, k) == 0, "inner rs clean decode");
+		size_t t = m / 2;
+		uint8_t used[255] = { 0 };
+		memcpy(buf, cw.data, n);
+		for (size_t e = 0; e < t; e++) {
+			size_t p;
+			do { p = trnd() % n; } while (used[p]);
+			used[p] = 1;
+			buf[p] ^= (uint8_t)(1 + trnd() % 255);
+		}
+		cor = 99;
+		CHECK(rs_decode(buf, n, k, &cor, &err) && memcmp(buf, data, k) == 0,
+			"inner rs corrects t errors");
+		vivi_bytes_free(&cw);
+	}
+	{
+		uint8_t payload[64];
+		rands(payload, sizeof(payload));
+		vivi_bytes g = { 0 };
+		CHECK(genome_gene_encode_inner(&g, 3, 0, 0, 3, 16, payload, sizeof(payload), &err),
+			"inner gene encode");
+		genome_scan_result res;
+		CHECK(genome_gene_scan(&res, g.data, g.len, &err) && res.count == 1,
+			"inner gene scan");
+		if (res.count == 1) {
+			CHECK(res.genes[0].crc_ok && res.genes[0].inner && res.genes[0].inner_m == 16
+				&& res.genes[0].inner_fixed == 0, "inner gene flags");
+			CHECK(res.genes[0].data_len == sizeof(payload)
+				&& memcmp(res.genes[0].data, payload, sizeof(payload)) == 0,
+				"inner gene data");
+		}
+		genome_scan_free(&res);
+		vivi_bytes_free(&g);
+	}
+	{
+		uint8_t payload[200];
+		rands(payload, sizeof(payload));
+		chr_opts co = { 64, 0, 3, 4, 0, 0, 0, 16 };
+		vivi_bytes strand = { 0 };
+		CHECK(chr_encode(&strand, 0, payload, sizeof(payload), &co, &err), "inner chromosome");
+		chr_record rec;
+		CHECK(chr_parse(&rec, strand.data, strand.len, -1, &err), "inner chromosome parse");
+		CHECK(rec.inner == 16, "inner parity detected");
+		vivi_bytes rd = { 0 };
+		CHECK(chr_read(&rd, &rec, &err) && rd.len == sizeof(payload)
+			&& memcmp(rd.data, payload, sizeof(payload)) == 0, "inner chromosome read");
+		vivi_bytes_free(&rd);
+		chr_record_free(&rec);
+		vivi_bytes_free(&strand);
+
+		int ids[1] = { 0 };
+		chr_opts opts[1] = { { 64, 0, 3, 4, 0, 0, 0, 16 } };
+		const uint8_t *datas[1] = { payload };
+		const size_t lens[1] = { sizeof(payload) };
+		vivi_organism *org = nullptr;
+		CHECK(organism_new(&org, ids, opts, datas, lens, 1, 60, &err), "inner organism new");
+		vivi_bytes ser = { 0 };
+		CHECK(organism_serialize14nb(&ser, org, &err), "inner organism serialize");
+		vivi_organism *loaded = nullptr;
+		CHECK(organism_deserialize(&loaded, ser.data, ser.len, &err), "inner organism load");
+		CHECK(loaded && loaded->chr_opts[0].inner == 16, "inner inferred on load");
+		vivi_bytes *out = nullptr;
+		cell_report rep;
+		CHECK(loaded && organism_read(&out, loaded, &rep, &err), "inner organism read");
+		CHECK(out && out[0].len == sizeof(payload)
+			&& memcmp(out[0].data, payload, sizeof(payload)) == 0, "inner organism data");
+		if (out) vivi_bytes_free_n(out, loaded->nchr);
+		organism_free(loaded);
+		vivi_bytes_free(&ser);
+		organism_free(org);
+	}
+}
+
 /* ---------- pool / random access ---------- */
 static void test_pool(void)
 {
 	const char *err;
 	uint8_t payload[600];
 	rands(payload, sizeof(payload));
-	chr_opts co = { 64, 0, 3, 4, 0, 0, 0 };
+	chr_opts co = { 64, 0, 3, 4, 0, 0, 0, 0 };
 	vivi_bytes chr = { 0 };
 	CHECK(chr_encode(&chr, 0, payload, sizeof(payload), &co, &err), "pool chromosome");
 	vivi_pool pool = { 0 };
 	CHECK(vivi_pool_add_chromosome(&pool, chr.data, chr.len, &err), "pool add chromosome");
 	CHECK(pool.count == 10, "pool holds every gene");
 
-	vivi_amp_opts ao = { 0.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0 }, 0.0, 1u };
+	vivi_amp_opts ao = { 0.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0 }, 0.0, 1u };
 	vivi_amp_result a1, a2;
 	CHECK(vivi_pool_amplify(&a1, &pool, 3, &ao, &err), "pool amplify");
 	CHECK(vivi_pool_amplify(&a2, &pool, 3, &ao, &err), "pool amplify again");
@@ -540,16 +704,16 @@ static void test_pool(void)
 	vivi_bytes_free(&a1.read.strand);
 	vivi_bytes_free(&a2.read.strand);
 
-	vivi_amp_opts fail = { 1.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0 }, 0.0, 1u };
+	vivi_amp_opts fail = { 1.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0 }, 0.0, 1u };
 	CHECK(vivi_pool_amplify(&a1, &pool, 3, &fail, &err), "pool primer failure");
 	CHECK(a1.read.dropped && a1.id == -1, "pool dropped product");
 
 	/* VIV14NB4NSH33: the on-strand primer site itself can be hit */
-	vivi_amp_opts pdark = { 0.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0 }, 1.0, 1u };
+	vivi_amp_opts pdark = { 0.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0 }, 1.0, 1u };
 	CHECK(vivi_pool_amplify(&a1, &pool, 3, &pdark, &err), "pool primer-site dropout");
 	CHECK(a1.read.dropped && a1.id == -1, "pool primer-site dark");
 
-	vivi_amp_opts xtalk = { 0.0, 1.0, 7, { 0.0, 0.0, 0.0, 0.0, 0 }, 0.0, 1u };
+	vivi_amp_opts xtalk = { 0.0, 1.0, 7, { 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0 }, 0.0, 1u };
 	CHECK(vivi_pool_amplify(&a1, &pool, 3, &xtalk, &err), "pool cross-talk");
 	CHECK(a1.id >= 0 && a1.id != 3, "pool off-target id");
 	vivi_bytes_free(&a1.read.strand);
@@ -643,7 +807,7 @@ static void test_cells(void)
 {
 	uint8_t cdata[3000];
 	rands(cdata, 3000);
-	chr_opts co = { 1024, 0, 3, 4, 0, 0, 0 };
+	chr_opts co = { 1024, 0, 3, 4, 0, 0, 0, 0 };
 	const char *err;
 	vivi_cell *c;
 	(void)cell_new(&c, 1, cdata, 3000, &co, &ERR);
@@ -726,7 +890,7 @@ static void test_cells(void)
 /* ---------- organisms ---------- */
 static void test_organisms(void)
 {
-	chr_opts o1 = { 1024, 0, 3, 4, 0, 0, 0 };
+	chr_opts o1 = { 1024, 0, 3, 4, 0, 0, 0, 0 };
 	int ids[2] = { 0, 1 };
 	chr_opts opts[2] = { o1, o1 };
 	uint8_t d0[300], d1[200];
@@ -897,7 +1061,7 @@ static void test_organisms(void)
 static void test_viv14(void)
 {
 	const char *err;
-	chr_opts o1 = { 1024, 0, 3, 4, 0, 0, 0 };
+	chr_opts o1 = { 1024, 0, 3, 4, 0, 0, 0, 0 };
 	int ids[1] = { 0 };
 	uint8_t d0[300];
 	rands(d0, 300);
@@ -981,7 +1145,7 @@ static void test_viv14n(void)
 	const char *err;
 	uint8_t payload[700];
 	rands(payload, sizeof(payload));
-	chr_opts co = { 128, 0, 3, 4, 0, 2, 0 };   /* 6 data genes + 2 parity genes */
+	chr_opts co = { 128, 0, 3, 4, 0, 2, 0, 0 };   /* 6 data genes + 2 parity genes */
 	vivi_bytes chr = { 0 };
 	CHECK(chr_encode(&chr, 1, payload, sizeof(payload), &co, &err), "viv14n encode");
 	chr_record rec;
@@ -1018,7 +1182,7 @@ static void test_viv14n(void)
 	vivi_bytes_free(&back);
 
 	/* the same corruption without parity is unrecoverable */
-	chr_opts plain = { 128, 0, 3, 4, 0, 0, 0 };
+	chr_opts plain = { 128, 0, 3, 4, 0, 0, 0, 0 };
 	vivi_bytes chr0 = { 0 };
 	CHECK(chr_encode(&chr0, 1, payload, sizeof(payload), &plain, &err), "viv14n plain encode");
 	chr_record rec0;
@@ -1075,7 +1239,7 @@ static void test_banshee(void)
 	const char *err;
 	uint8_t payload[700];
 	rands(payload, sizeof(payload));
-	chr_opts co = { 128, 0, 3, 4, 7, 2, 1234 };   /* parity 2 + barcode 1234 */
+	chr_opts co = { 128, 0, 3, 4, 7, 2, 1234, 0 };   /* parity 2 + barcode 1234 */
 	vivi_bytes chr = { 0 };
 	CHECK(chr_encode(&chr, 5, payload, sizeof(payload), &co, &err), "banshee encode");
 	chr_record rec;
@@ -1147,7 +1311,7 @@ static void test_banshee(void)
 	uint8_t p2[200];
 	rands(p2, sizeof(p2));
 	int ids[2] = { 0, 1 };
-	chr_opts opts[2] = { { 128, 0, 3, 4, 0, 0, 0 }, co };
+	chr_opts opts[2] = { { 128, 0, 3, 4, 0, 0, 0, 0 }, co };
 	const uint8_t *datas[2] = { payload, p2 };
 	const size_t lens[2] = { sizeof(payload), sizeof(p2) };
 	vivi_organism *org = nullptr;
@@ -1186,7 +1350,7 @@ static void test_banshee(void)
 static vivi_organism *transaction_fixture(size_t nchr)
 {
 	int ids[2] = { 0, 1 };
-	chr_opts opts[2] = { { 16, 1, 3, 4, 0, 0, 0 }, { 16, 1, 3, 4, 0, 0, 0 } };
+	chr_opts opts[2] = { { 16, 1, 3, 4, 0, 0, 0, 0 }, { 16, 1, 3, 4, 0, 0, 0, 0 } };
 	const uint8_t *data[2] = { (const uint8_t *)"transaction data", (const uint8_t *)"second chromosome" };
 	size_t lens[2] = { 16, 17 };
 	vivi_organism *o = nullptr;
@@ -1306,7 +1470,9 @@ int main(void)
 	test_chromosome();
 	test_prng();
 	test_channel();
+	test_realistic_channel();
 	test_consensus();
+	test_inner();
 	test_pool();
 	test_parity();
 	test_cells();

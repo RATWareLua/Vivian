@@ -14,7 +14,7 @@ setlocal
 set CC=clang
 set AR=llvm-ar
 set CFLAGS=-std=c23 -O2 -Wall -Wextra -Iinclude
-set LIBSRC=src\vivi.c src\dna.c src\genome.c src\chromosome.c src\channel.c src\pool.c src\parity.c src\cell.c src\organism.c
+set LIBSRC=src\vivi.c src\dna.c src\genome.c src\chromosome.c src\channel.c src\pool.c src\parity.c src\rs.c src\cell.c src\organism.c
 
 if "%1"=="clean" goto clean
 if "%1"=="lib" goto lib

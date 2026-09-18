@@ -16,10 +16,11 @@ bool vivi_channel_read(vivi_read *out, const uint8_t *strand, size_t slen,
 	if (!err) err = &channel_err_sink;
 	memset(out, 0, sizeof(*out));
 	if (!strand) { *err = "expected string"; return false; }
-	vivi_channel_opts def = { 0.0, 0.0, 0.0, 0.0, 0 };
+	vivi_channel_opts def = { 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0 };
 	if (!opts) opts = &def;
-	const double ps[4] = { opts->p_sub, opts->p_ins, opts->p_del, opts->p_drop };
-	for (int i = 0; i < 4; i++)
+	const double ps[8] = { opts->p_sub, opts->p_ins, opts->p_del, opts->p_drop,
+		opts->p_sub_gc, opts->p_sub_hp, opts->p_trunc, opts->p_burst };
+	for (int i = 0; i < 8; i++)
 		if (!(ps[i] >= 0.0 && ps[i] <= 1.0)) {
 			*err = "invalid probability";
 			return false;
@@ -32,20 +33,46 @@ bool vivi_channel_read(vivi_read *out, const uint8_t *strand, size_t slen,
 		return true;
 	}
 	size_t n = slen * 4;
+	size_t limit = 0;
+	if (opts->p_trunc > 0.0 && n >= 2 && vivi_prng_chance(&rng, opts->p_trunc))
+		limit = 1 + (size_t)(vivi_prng_next(&rng) % (uint32_t)(n - 1));
 	uint8_t *digits = vivi_alloc(2 * n + 4);
 	if (!digits) { *err = "out of memory"; return false; }
 	size_t m = 0;
+	uint32_t burst_rem = 0;
 	for (size_t i = 0; i < n; i++) {
+		if (limit && m >= limit) break;
 		int d = digit_at(strand, i);
+		int bursted = 0;
+		if (opts->p_burst > 0.0) {
+			if (burst_rem > 0) {
+				bursted = 1;
+				burst_rem--;
+			} else if (vivi_prng_chance(&rng, opts->p_burst)) {
+				burst_rem = opts->burst_len ? opts->burst_len : 8;
+				bursted = 1;
+			}
+		}
 		if (!	vivi_prng_chance(&rng, opts->p_del)) {
-			if (	vivi_prng_chance(&rng, opts->p_sub)) {
+			double p_sub = opts->p_sub;
+			if (bursted) {
+				p_sub = 1.0;
+			} else {
+				if (opts->p_sub_gc > 0.0 && (d == 1 || d == 2))
+					p_sub = 1.0 - (1.0 - p_sub) * (1.0 - opts->p_sub_gc);
+				if (opts->p_sub_hp > 0.0 && i > 0 && d == digit_at(strand, i - 1))
+					p_sub = 1.0 - (1.0 - p_sub) * (1.0 - opts->p_sub_hp);
+			}
+			if (	vivi_prng_chance(&rng, p_sub)) {
 				int k = (int)(	vivi_prng_next(&rng) % 3u);
 				d = (d + 1 + k) % 4;   /* never the original base */
 			}
-			digits[m++] = (uint8_t)d;
+			if (!limit || m < limit) digits[m++] = (uint8_t)d;
 		}
-		if (	vivi_prng_chance(&rng, opts->p_ins))
-			digits[m++] = (uint8_t)(	vivi_prng_next(&rng) & 3u);
+		if (	vivi_prng_chance(&rng, opts->p_ins)) {
+			uint8_t ins = (uint8_t)(	vivi_prng_next(&rng) & 3u);
+			if (!limit || m < limit) digits[m++] = ins;
+		}
 	}
 	size_t bytes = (m + 3) / 4;
 	if (bytes) {

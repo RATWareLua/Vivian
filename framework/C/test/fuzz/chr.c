@@ -17,11 +17,11 @@ static void seed_once(void)
 	if (g_seed_done) return;
 	g_seed_done = 1;
 	static const uint8_t payload[] = "chromosome fuzz seed payload";
-	chr_opts co = { 64, 0, 3, 4, 0, 0, 0 };
+	chr_opts co = { 64, 0, 3, 4, 0, 0, 0, 0 };
 	(void)chr_encode(&g_seed, 3, payload, sizeof(payload) - 1, &co, nullptr);
-	chr_opts par = { 64, 0, 3, 4, 0, 2, 0 };
+	chr_opts par = { 64, 0, 3, 4, 0, 2, 0, 0 };
 	(void)chr_encode(&g_seed_par, 4, payload, sizeof(payload) - 1, &par, nullptr);
-	chr_opts ban = { 64, 0, 3, 4, 0, 2, 777 };
+	chr_opts ban = { 64, 0, 3, 4, 0, 2, 777, 0 };
 	(void)chr_encode(&g_seed_ban, 5, payload, sizeof(payload) - 1, &ban, nullptr);
 	atexit(seed_cleanup);
 }

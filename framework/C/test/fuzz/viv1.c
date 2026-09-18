@@ -20,8 +20,8 @@ static void seed_once(void)
 	static const uint8_t d0[] = "fuzz genome alpha";
 	static const uint8_t d1[] = "fuzz genome beta";
 	int ids[2] = { 0, 1 };
-	chr_opts co = { 1024, 0, 3, 4, 0, 0, 0 };
-	chr_opts ban = { 1024, 0, 3, 4, 0, 2, 4242 };
+	chr_opts co = { 1024, 0, 3, 4, 0, 0, 0, 0 };
+	chr_opts ban = { 1024, 0, 3, 4, 0, 2, 4242, 0 };
 	chr_opts opts[2] = { co, ban };
 	const uint8_t *datas[2] = { d0, d1 };
 	size_t lens[2] = { sizeof(d0) - 1, sizeof(d1) - 1 };

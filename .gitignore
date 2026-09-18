@@ -21,6 +21,10 @@ framework/C/xcheck_lua.txt
 framework/C/tools/vivi_cli/vivi_cli
 framework/C/tools/vivi_cli/vivi_cli.exe
 
+# Optional benchmark (framework/C/tools/vivi_bench)
+framework/C/tools/vivi_bench/vivi_bench
+framework/C/tools/vivi_bench/vivi_bench.exe
+
 # ---------------------------------------------------------------------------
 # Luau interpreter binary: not part of the repository.
 # Grab a build from https://github.com/luau-lang/luau/releases

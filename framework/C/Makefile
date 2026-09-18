@@ -2,7 +2,7 @@
 CC      := clang
 AR      := llvm-ar
 CFLAGS  := -std=c23 -O2 -Wall -Wextra -Iinclude
-LIBSRC  := src/vivi.c src/dna.c src/genome.c src/chromosome.c src/channel.c src/pool.c src/parity.c src/cell.c src/organism.c
+LIBSRC  := src/vivi.c src/dna.c src/genome.c src/chromosome.c src/channel.c src/pool.c src/parity.c src/rs.c src/cell.c src/organism.c
 HDRS    := $(wildcard include/vivi/*.h)
 LIBOBJ  := $(LIBSRC:.c=.o)
 

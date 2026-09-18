@@ -27,6 +27,11 @@ typedef struct {
 	double p_del;   /* deletion probability per original base, [0, 1] */
 	double p_drop;  /* probability that the whole read is lost, [0, 1] */
 	uint32_t seed;  /* rng seed; 0 behaves as 1 */
+	double p_sub_gc;    /* EXTRA substitution probability when the ORIGINAL base is G or C */
+	double p_sub_hp;    /* EXTRA substitution probability when the ORIGINAL base equals the previous original base (homopolymer) */
+	double p_trunc;     /* probability the read is truncated at a random base */
+	double p_burst;     /* per-base probability of STARTING a correlated burst of substitutions */
+	uint32_t burst_len; /* number of original bases substituted at the start of a burst (0 = 8) */
 } vivi_channel_opts;
 
 typedef struct {

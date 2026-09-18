@@ -39,11 +39,37 @@ vivi_channel_read(&rd, strand, slen, &ch, &err);
   (then the replacement), insert? (then the digit). This makes a read a
   pure function of `(strand, rates, seed)`.
 - `p_drop` models a lost read (PCR dropout): `dropped = 1`, empty strand.
+- Realistic extras, all defaulting to 0 and only drawing when enabled, so
+  the pinned single-read stream is byte-identical when they are off:
+  `p_sub_gc` (extra substitution on G/C), `p_sub_hp` (extra substitution
+  inside a homopolymer run), `p_trunc` (the read is cut at a random base),
+  and `p_burst`/`burst_len` (a correlated run of `burst_len` substituted
+  bases). Combined substitution probability is
+  `1 - (1-p_sub)(1-p_sub_gc)(1-p_sub_hp)`; a burst forces `1.0`.
 - The damaged sequence is repacked to whole bytes; `bases` is the
   authoritative length (0..3 filler bases are appended as `A`).
 - An identity channel (`rates = 0`, or `opts = NULL`) is a lossless read.
 - The research layer uses SplitMix64 (`vivi_prng`); the format-level
   xorshift32 (`vivi_rng`) stays frozen for Lua byte parity.
+
+## Inner code (`vivi/rs.h`)
+
+The 32-bit gene tag turns any corruption into a whole-gene erasure. The
+inner code shortens the erasure radius: `genome_gene_encode_inner` writes
+the payload as a systematic Reed-Solomon codeword (data + `inner_m` parity
+bytes, GF(256), `n <= 255`) with gene usertype bit 1 set, so the decoder
+repairs up to `floor(inner_m/2)` corrupted bytes *before* the tag check.
+`chr_opts.inner` selects it per chromosome (`--inner M` in `vivi_sim` and
+the CLI); the parity count is self-describing, so a deserialized organism
+infers it from the genes and `mutate`/`cross` preserve it. Dense mode
+only, and `gene_raw + inner_m <= 255`.
+
+A base substitution only sometimes maps to one bad byte: measured over
+20 000 single-base corruption trials on a 64-byte payload, 25% made the
+DNA decoder fail outright, 55% produced exactly one byte error, 2% two,
+and the rest desynchronized the constraint coder into many. RS repairs
+the single- and double-byte cases (the dominant ones) but cannot undo a
+desync, so the inner code is a partial, honest win.
 
 ## Consensus (coverage)
 
@@ -125,12 +151,12 @@ vivi_sim.exe --in payload.bin --out run.csv --p-sub 0.0005 --p-ins 1e-5 --p-del 
 One invocation = one CSV row; the first column selects the schema:
 
 ```
-whole:   mode,p_sub,p_ins,p_del,p_drop,coverage,trials,success,wrong,failed,dropped,
-         rate,avg_repaired,avg_structural,avg_dead,avg_anomaly
-access:  mode,p_sub,p_ins,p_del,p_drop,p_access,p_cross,p_primer,coverage,trials,success,
-         wrong,failed,dropped,cross,rate
-library: mode,p_sub,p_ins,p_del,p_drop,coverage,replicas,parity,genes,trials,success,
-         wrong,failed,dropped,rate,avg_present
+whole:   mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,coverage,inner,trials,
+         success,wrong,failed,dropped,rate,avg_repaired,avg_structural,avg_dead,avg_anomaly
+access:  mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,p_access,p_cross,p_primer,
+         coverage,inner,trials,success,wrong,failed,dropped,cross,rate
+library: mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,coverage,inner,replicas,
+         parity,genes,trials,success,wrong,failed,dropped,rate,avg_present
 ```
 
 - `success` — the payload (whole) or the target gene (access) came back exact;
@@ -210,6 +236,45 @@ K=1, m=0), but it multiplies read cost, so the trade is reads vs. molecules.
 Random access stays bounded by primer dropout (`p_access`), which no amount
 of coverage fixes: the 0.936 ceiling is its 5% loss, not a sequencing error.
 
+### Inner code: bounded erasures, and where it stops
+
+| mode | parameters | inner 0 | inner 16 |
+|---|---|---|---|
+| whole | 256 B, gene_raw 64, p_sub 0.001 | 0.689 | **0.903** |
+| library | 1 KiB, n=16, gene_raw 64, p_sub 0.001 | 0.006 | **0.066** |
+| access | 1 KiB, gene_raw 64, p_sub 0.001, p_access 0.05 | 0.668 | **0.801** |
+
+The inner code trades capacity (shorter genes) for per-molecule repair, so
+it lifts whole and access strongly but library only modestly: with 16 genes
+all needing to survive, the unavoidable ~25% decode-desync share dominates.
+It composes with parity and coverage.
+
+## Benchmark (`tools/vivi_bench`)
+
+`vivi_bench` compares recovery strategies at their real storage cost for
+the same payload and channel (a separate module, like the CLI):
+
+```bat
+vivi_bench.exe --size 1024 --gene-raw 64 --trials 1000 --p-sub 0.001 --header
+```
+
+1 KiB, 16 genes, p_sub = 0.001, 1000 trials (`storage_x` = stored packed
+bytes / payload bytes):
+
+| strategy | storage_x | success |
+|---|---|---|
+| plain (no code) | 1.44 | 0.006 |
+| replica K=2 | 2.87 | 0.247 |
+| replica K=3 | 4.31 | 0.704 |
+| parity m=8 | 2.15 | 0.776 |
+| inner m=4 | 1.50 | 0.076 |
+| coverage K=5 | 1.44 | **1.000** |
+
+The headline: coverage buys a full recovery at zero storage cost (only
+reads), while replication buys it at 4.3×; parity and the inner code sit in
+between. The tool prints one row per strategy so the trade is explicit
+rather than asserted.
+
 ## Fuzzing
 
 `test/fuzz/` holds one libFuzzer harness per parser: `dna.c` (strand, ASCII
@@ -229,15 +294,18 @@ everywhere).
 ## Channel assumptions
 
 Modelled: independent per-base substitution, insertion and deletion with
-fixed rates, plus whole-read dropout, all deterministic per seed. Per-molecule
-coverage is modelled as `coverage` independent reads with majority voting
-(`vivi_consensus_read`).
+fixed rates, whole-read dropout, whole-read truncation (`p_trunc`), and
+context bias (extra substitutions on G/C and inside homopolymers, plus
+correlated bursts), all deterministic per seed. Per-molecule coverage is
+modelled as `coverage` independent reads with majority voting
+(`vivi_consensus_read`), and the inner code (`vivi/rs.h`) as byte-error
+correction inside a molecule.
 
-Not modelled (yet): context-dependent rates (homopolymers, GC), PCR
-amplification bias, per-oligo synthesis dropout, read truncation and quality
-scores, adapter contamination, coverage distributions, correlated bursts.
-Treat absolute numbers as comparative, not as predictions for a specific
-sequencing platform.
+Not modelled (yet): PCR amplification bias, per-oligo synthesis dropout
+separate from `p_drop`, base-quality scores, adapter contamination, a full
+coverage *distribution* (coverage is a fixed count), and correlated
+insertion/deletion bursts (only substitutions burst). Treat absolute
+numbers as comparative, not as predictions for a specific platform.
 
 ## Related work
 
@@ -280,20 +348,23 @@ first-class chromosome members (CEN2 centromere, RS reconstruction in
 `chr_read`). `VIV14NB4NSH33` ("Banshee") shipped: on-strand primer sites
 and the layout freeze. Full design and wire format: [viv14.md](viv14.md).
 
-The Lua reference is at byte parity with the C port for every revision,
-enforced by the `xcheck` scenario pair in CI.
+The Lua reference is at byte parity with the C port for every container
+revision, enforced by the `xcheck` scenario pair in CI. The inner code is a
+C-only research extension (gene usertype bit 1); the Lua port does not yet
+decode it, so `xcheck` does not enable it.
 
 ## Roadmap
 
-1. **Channel + sim + CSV** — done (this document).
-2. **Random access** — done (`vivi/pool.h`, `vivi_sim --access`); on-strand
-   primer sites shipped in `VIV14NB4NSH33` (`chr_opts.primer`,
-   `chr_amplifiable`, `--p-primer`).
-3. **Outer code** — done (`vivi/parity.h`: systematic Reed-Solomon over
-   GF(256); `vivi_sim --library --replicas K --parity M`).
-4. **Fuzzing + benchmarks** — done (`test/fuzz/`, `make fuzz-smoke`,
-   `make research`).
-5. **Formalization** — done (assumptions, related work, threats, protocol
-   and the VIV14 plan in this document).
+1. **Channel + sim + CSV** — done.
+2. **Random access** — done (`vivi/pool.h`, Banshee primer sites).
+3. **Outer code** — done (`vivi/parity.h`).
+4. **Fuzzing + benchmarks** — done (`test/fuzz/`, `make fuzz-smoke`).
+5. **Formalization** — done.
+6. **Consensus / coverage** — done (`vivi_consensus_read`, `--coverage K`).
+7. **Inner code** — done in C (`vivi/rs.h`, gene usertype bit 1,
+   `chr_opts.inner`, `--inner M`); Lua port pending.
+8. **Realistic channel** — done (context rates, truncation, bursts:
+   `--p-sub-gc`, `--p-sub-hp`, `--p-trunc`, `--p-burst`).
+9. **Equal-redundancy benchmark** — done (`tools/vivi_bench`).
 
 All results are simulation only; no wet-lab claims are made.

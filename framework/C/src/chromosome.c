@@ -116,6 +116,13 @@ bool chr_encode(vivi_bytes *out, int chr_id, const uint8_t *data, size_t len,
 	if (parity < 0 || parity > 16) { *err = "invalid parity (integer 0..16)"; return false; }
 	int primer = opts->primer;
 	if (primer < 0 || primer > 65535) { *err = "invalid primer (integer 0..65535)"; return false; }
+	int inner = opts->inner;
+	if (inner < 0 || inner > 64) { *err = "invalid inner parity (0..64)"; return false; }
+	if (inner > 0 && opts->codon) { *err = "inner code is dense-only"; return false; }
+	if (inner > 0 && gene_raw + inner > 255) {
+		*err = "inner code needs gene_raw + inner <= 255";
+		return false;
+	}
 
 	vivi_buf o = { 0 };
 	size_t ngenes = 0, npar = 0;
@@ -146,8 +153,8 @@ bool chr_encode(vivi_bytes *out, int chr_id, const uint8_t *data, size_t len,
 		}
 		size_t clen = (len - off < (size_t)gene_raw) ? (len - off) : (size_t)gene_raw;
 		vivi_bytes g;
-		if (!genome_gene_encode(&g, (int)ngenes, 0, opts->codon, opts->h ? opts->h : 3,
-			data + off, clen, err)) {
+		if (!genome_gene_encode_inner(&g, (int)ngenes, 0, opts->codon, opts->h ? opts->h : 3,
+			inner, data + off, clen, err)) {
 			goto fail;
 		}
 		if (ngenes == gene_cap) {
@@ -208,8 +215,8 @@ bool chr_encode(vivi_bytes *out, int chr_id, const uint8_t *data, size_t len,
 		}
 		int ok = vivi_buf_append(&o, cen, CEN2BYTES);
 		for (size_t j = 0; ok && j < (size_t)parity; j++) {
-			if (!genome_gene_encode(&par_strands[npar], (int)(ngenes + j), 2, opts->codon,
-				opts->h ? opts->h : 3, shards[ngenes + j], (size_t)gene_raw, err)) {
+			if (!genome_gene_encode_inner(&par_strands[npar], (int)(ngenes + j), 2, opts->codon,
+				opts->h ? opts->h : 3, inner, shards[ngenes + j], (size_t)gene_raw, err)) {
 				ok = 0;
 				break;
 			}
@@ -402,6 +409,10 @@ bool chr_parse(chr_record *out, const uint8_t *strand, size_t slen, int units_hi
 	out->telomere_ok = telo_ok;
 	out->cen_ok = cen_ok;
 	out->telomere_bytes = tb;
+	int inner_max = 0;
+	for (size_t i = 0; i < gene_count; i++)
+		if (genes[i].inner_m > inner_max) inner_max = genes[i].inner_m;
+	out->inner = inner_max;
 	out->genes = genes;
 	out->gene_count = gene_count;
 	return true;
