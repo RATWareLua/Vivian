@@ -99,10 +99,10 @@ static int read_gene(genome_gene *g, const vivi_bytes *mol, size_t id,
 {
 	vivi_channel_opts ch = { c->p_sub, c->p_ins, c->p_del, 0.0,
 		c->seed + t * 977u + (uint32_t)id * 31u + r + 1u,
-		0.0, 0.0, 0.0, 0.0, 0u };
+		0.0, 0.0, 0.0, 0.0, 0u, 0.0 };
 	vivi_read rd;
 	if (coverage > 1) {
-		vivi_consensus_opts cn = { ch, coverage };
+		vivi_consensus_opts cn = { ch, coverage, 0 };
 		if (!vivi_consensus_read(&rd, mol->data, mol->len, &cn, err)) return READ_ERR;
 	} else {
 		if (!vivi_channel_read(&rd, mol->data, mol->len, &ch, err)) return READ_ERR;

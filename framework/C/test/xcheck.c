@@ -581,6 +581,71 @@ static void scenario_research(void)
 		printf("ch_pool_n %d %d\n", ar.id, ar.read.dropped);
 		vivi_bytes_free(&ar.read.strand);
 	}
+
+	vivi_read srd;
+	if (vivi_channel_read_soft(&srd, chdata, sizeof(chdata),
+			&(vivi_channel_opts){ .seed = 7 }, &err)) {
+		hexline("ch_soft_clean", srd.strand.data, srd.strand.len);
+		int hi = 0;
+		for (size_t i = 0; i < srd.bases; i++)
+			if (srd.qual[i] == VIVI_QUAL_HI) hi++;
+		printf("ch_soft_clean_n %zu %d %d\n", srd.bases, srd.dropped, hi);
+		vivi_read_free(&srd);
+	} else {
+		printf("ch_soft_clean fail\n");
+	}
+
+	vivi_read srd2;
+	if (vivi_channel_read_soft(&srd2, chdata, sizeof(chdata),
+			&(vivi_channel_opts){ .seed = 7, .p_sub = 1.0 }, &err)) {
+		int lo = 0;
+		for (size_t i = 0; i < srd2.bases; i++)
+			if (srd2.qual[i] == VIVI_QUAL_LO) lo++;
+		printf("ch_soft_sub_n %d\n", lo);
+		vivi_read_free(&srd2);
+	} else {
+		printf("ch_soft_sub fail\n");
+	}
+
+	vivi_read hardc, softc;
+	int okh = vivi_consensus_read(&hardc, chdata, sizeof(chdata),
+		&(vivi_consensus_opts){ .ch = { .seed = 7, .p_sub = 0.3 },
+			.coverage = 3, .soft = 0 }, &err);
+	int oks = vivi_consensus_read(&softc, chdata, sizeof(chdata),
+		&(vivi_consensus_opts){ .ch = { .seed = 7, .p_sub = 0.3 },
+			.coverage = 3, .soft = 1 }, &err);
+	if (okh && oks) {
+		int hardm = 0, softm = 0;
+		for (size_t i = 0; i < sizeof(chdata); i++) {
+			if (hardc.strand.data[i] != chdata[i]) hardm++;
+			if (softc.strand.data[i] != chdata[i]) softm++;
+		}
+		printf("ch_soft_cons %d %d\n", hardm, softm);
+	} else {
+		printf("ch_soft_cons fail\n");
+	}
+	if (okh) vivi_read_free(&hardc);
+	if (oks) vivi_read_free(&softc);
+
+	chan_case("ch_burst_del", chdata, sizeof(chdata),
+		&(vivi_channel_opts){ .seed = 7, .p_burst = 1.0, .burst_len = 4,
+			.p_burst_del = 1.0 }, 0, 1);
+	chan_case("ch_burst_del_ctrl", chdata, sizeof(chdata),
+		&(vivi_channel_opts){ .seed = 7, .p_burst = 1.0, .burst_len = 4,
+			.p_burst_del = 0.0 }, 0, 1);
+
+	vivi_amp_opts sao = { .p_access = 0.0, .p_cross = 0.01, .seed = 0x1234,
+		.p_primer = 0.05, .coverage = 3, .soft = 1 };
+	sao.ch.p_sub = 0.01;
+	vivi_amp_result sar;
+	if (!vivi_pool_amplify(&sar, &pool, 1, &sao, &err)) {
+		printf("ch_soft_pool_amp fail\n");
+	} else {
+		hexline("ch_soft_pool", sar.read.strand.data, sar.read.strand.len);
+		printf("ch_soft_pool_n %d %d\n", sar.id, sar.read.dropped);
+		vivi_read_free(&sar.read);
+	}
+
 	vivi_pool_free(&pool);
 	vivi_bytes_free(&pchr);
 }

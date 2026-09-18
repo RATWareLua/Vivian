@@ -418,6 +418,54 @@ local function scenario_research()
 		line("ch_pool", amp.read.strand)
 		numline("ch_pool_n", amp.id, amp.read.dropped)
 	end
+
+	local srd = channel.read_soft(chdata, { seed = 7 })
+	line("ch_soft_clean", srd.strand)
+	local hi = 0
+	for i = 1, srd.bases do
+		if srd.qual[i] == 60 then hi = hi + 1 end
+	end
+	numline("ch_soft_clean_n", srd.bases, srd.dropped, hi)
+	channel.read_free(srd)
+
+	local srd2 = channel.read_soft(chdata, { seed = 7, p_sub = 1.0 })
+	local lo = 0
+	for i = 1, srd2.bases do
+		if srd2.qual[i] == 4 then lo = lo + 1 end
+	end
+	numline("ch_soft_sub_n", lo)
+	channel.read_free(srd2)
+
+	local hardc = channel.consensus_read(chdata,
+		{ ch = { seed = 7, p_sub = 0.3 }, coverage = 3, soft = 0 })
+	local softc = channel.consensus_read(chdata,
+		{ ch = { seed = 7, p_sub = 0.3 }, coverage = 3, soft = 1 })
+	if hardc and softc then
+		local hardm, softm = 0, 0
+		for i = 1, #chdata do
+			if byte(hardc.strand, i) ~= byte(chdata, i) then hardm = hardm + 1 end
+			if byte(softc.strand, i) ~= byte(chdata, i) then softm = softm + 1 end
+		end
+		numline("ch_soft_cons", hardm, softm)
+	else
+		print("ch_soft_cons fail")
+	end
+	channel.read_free(hardc)
+	channel.read_free(softc)
+
+	local bd = channel.read(chdata, { seed = 7, p_burst = 1.0, burst_len = 4, p_burst_del = 1.0 })
+	numline("ch_burst_del_n", bd.bases, bd.dropped)
+	local bc = channel.read(chdata, { seed = 7, p_burst = 1.0, burst_len = 4, p_burst_del = 0.0 })
+	numline("ch_burst_del_ctrl_n", bc.bases, bc.dropped)
+
+	local sampa = pool.amplify(p, 1, { p_access = 0.0, p_cross = 0.01, seed = 0x1234,
+		p_primer = 0.05, coverage = 3, ch = { p_sub = 0.01 }, soft = 1 })
+	if not sampa then
+		print("ch_soft_pool_amp fail")
+	else
+		line("ch_soft_pool", sampa.read.strand)
+		numline("ch_soft_pool_n", sampa.id, sampa.read.dropped)
+	end
 end
 
 scenario_chromosomes()

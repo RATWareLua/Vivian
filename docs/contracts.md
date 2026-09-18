@@ -56,6 +56,7 @@ additions stay compatible.
 | Producer | You must free with |
 |---|---|
 | any function filling a `vivi_bytes *` | `vivi_bytes_free()` |
+| a `vivi_read` (from the channel) | `vivi_read_free()` (frees `strand` and `qual`) |
 | `organism_read` (`vivi_bytes **out`) | `vivi_bytes_free_n(*out, o->nchr)` |
 | `organism_peek` (`vivi_bytes **out`) | `vivi_bytes_free_n(*out, o->nchr)` |
 | `cell_peek` (`vivi_bytes *out`) | `vivi_bytes_free()` |

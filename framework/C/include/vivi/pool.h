@@ -37,6 +37,7 @@ typedef struct {
 	vivi_channel_opts ch;  /* amplification/sequencing errors on the amplicon */
 	double p_primer;       /* VIV14NB4NSH33: on-strand primer-site dropout */
 	uint32_t coverage;     /* reads majority-voted per amplicon (1 = plain) */
+	int soft;              /* 1 = quality-weighted vote (soft-decision) */
 } vivi_amp_opts;
 
 typedef struct {

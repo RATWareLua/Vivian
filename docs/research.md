@@ -45,9 +45,13 @@ vivi_channel_read(&rd, strand, slen, &ch, &err);
   the pinned single-read stream is byte-identical when they are off:
   `p_sub_gc` (extra substitution on G/C), `p_sub_hp` (extra substitution
   inside a homopolymer run), `p_trunc` (the read is cut at a random base),
-  and `p_burst`/`burst_len` (a correlated run of `burst_len` substituted
-  bases). Combined substitution probability is
+  and `p_burst`/`burst_len`/`p_burst_del` (a correlated run of `burst_len`
+  bases; each is deleted with probability `p_burst_del`, else substituted).
+  Combined substitution probability is
   `1 - (1-p_sub)(1-p_sub_gc)(1-p_sub_hp)`; a burst forces `1.0`.
+- `vivi_channel_read_soft` also returns a per-base quality (`vivi_read.qual`):
+  `VIVI_QUAL_HI` (60) for a base read unchanged, `VIVI_QUAL_LO` (4) for a
+  substituted or inserted one. Free any read with `vivi_read_free()`.
 - The damaged sequence is repacked to whole bytes; `bases` is the
   authoritative length (0..3 filler bases are appended as `A`).
 - An identity channel (`rates = 0`, or `opts = NULL`) is a lossless read.
@@ -155,11 +159,11 @@ vivi_sim.exe --in payload.bin --out run.csv --p-sub 0.0005 --p-ins 1e-5 --p-del 
 One invocation = one CSV row; the first column selects the schema:
 
 ```
-whole:   mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,coverage,cov_lambda,inner,trials,
+whole:   mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,p_burst_del,coverage,cov_lambda,soft,inner,trials,
          success,wrong,failed,dropped,rate,avg_repaired,avg_structural,avg_dead,avg_anomaly
-access:  mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,p_access,p_cross,p_primer,
-         coverage,cov_lambda,inner,trials,success,wrong,failed,dropped,cross,rate
-library: mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,coverage,cov_lambda,inner,replicas,
+access:  mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,p_burst_del,p_access,p_cross,p_primer,
+         coverage,cov_lambda,soft,inner,trials,success,wrong,failed,dropped,cross,rate
+library: mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,p_burst_del,coverage,cov_lambda,soft,inner,replicas,
          parity,genes,trials,success,wrong,failed,dropped,rate,avg_present
 ```
 
@@ -240,6 +244,22 @@ K=1, m=0), but it multiplies read cost, so the trade is reads vs. molecules.
 Random access stays bounded by primer dropout (`p_access`), which no amount
 of coverage fixes: the 0.936 ceiling is its 5% loss, not a sequencing error.
 
+### Soft-decision (`--soft`)
+
+A hard vote counts every read equally. With `soft != 0` each read uses
+`vivi_channel_read_soft`: an unchanged base scores `VIVI_QUAL_HI` (60), a
+substituted or inserted one `VIVI_QUAL_LO` (4), and the consensus vote is
+weighted by `quality + 1`, so one high-quality base outweighs several
+low-quality ones. Hard vs soft at coverage 3, p_sub = 0.4, one strand:
+
+| vote | mismatched bases (of 1024) |
+|---|---|
+| hard majority | 20 |
+| soft-weighted | **5** |
+
+Soft-decision is what real basecallers give you; modelling it closes the
+"a failed tag is a hard erasure" caveat for the consensus path.
+
 ### Coverage distribution (`--coverage-lambda`)
 
 Fixed `--coverage K` assumes every molecule gets exactly K reads. Real pools
@@ -317,18 +337,19 @@ everywhere).
 ## Channel assumptions
 
 Modelled: independent per-base substitution, insertion and deletion with
-fixed rates, whole-read dropout, whole-read truncation (`p_trunc`), and
-context bias (extra substitutions on G/C and inside homopolymers, plus
-correlated bursts), all deterministic per seed. Per-molecule coverage is
-modelled as `coverage` independent reads with majority voting
-(`vivi_consensus_read`), or as a Poisson count per molecule
-(`--coverage-lambda`), and the inner code (`vivi/rs.h`) as byte-error
-correction inside a molecule.
+fixed rates, whole-read dropout, whole-read truncation (`p_trunc`), context
+bias (extra substitutions on G/C and inside homopolymers), correlated bursts
+of substitutions **or** deletions (`p_burst`/`burst_len`/`p_burst_del`), and
+per-base quality with soft-decision consensus (`vivi_channel_read_soft`,
+`soft`), all deterministic per seed. Per-molecule coverage is
+`coverage` independent reads with majority voting (`vivi_consensus_read`) or
+a Poisson count per molecule (`--coverage-lambda`), and the inner code
+(`vivi/rs.h`) corrects byte errors inside a molecule.
 
 Not modelled (yet): PCR amplification bias, per-oligo synthesis dropout
-separate from `p_drop`, base-quality scores and soft-decision decoding,
-adapter contamination, and correlated insertion/deletion bursts (only
-substitutions burst). Treat absolute
+separate from `p_drop`, adapter contamination, read quality calibrated to a
+real basecaller (our quality is the ideal unchanged/changed split), and
+per-platform error rates. Treat absolute
 numbers as comparative, not as predictions for a specific platform.
 
 ## Related work
@@ -396,7 +417,13 @@ through a Banshee container.
 11. **Model layer** — done (`vivi/model.h`: fitness, population, selection).
 12. **Lua research parity** — done (`framework/luau/channel.lua`, `pool.lua`;
     byte-identical SplitMix64, `xcheck` covers channel/consensus/pool).
+13. **Soft-decision** — done (`vivi_channel_read_soft`, `--soft`; quality-
+    weighted consensus).
+14. **Correlated indels** — done (`p_burst_del`: deletions inside a burst).
 
-Still open: base-quality scores and soft-decision decoding.
+Still open (honest limits, not missing code): a basecaller-calibrated quality
+model, PCR amplification bias, per-oligo synthesis dropout, adapter
+contamination, and the inner-code desync (~25% of single substitutions make
+`dna_decode` fail before the RS decoder can help).
 
 All results are simulation only; no wet-lab claims are made.

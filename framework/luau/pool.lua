@@ -36,6 +36,7 @@ local function amplify(p, id, opts)
 	local ch = opts.ch or {}
 	local p_primer = opts.p_primer or 0.0
 	local coverage = opts.coverage or 1
+	local soft = opts.soft or 0
 	local n = #p.ids
 	if n == 0 then return nil, "empty pool" end
 	if not (p_access >= 0.0 and p_access <= 1.0)
@@ -66,7 +67,8 @@ local function amplify(p, id, opts)
 	local c = {}
 	for k, v in pairs(ch) do c[k] = v end
 	c.seed = (seed + (pick - 1) * CROSS_MUL % TWO32 + 1) % TWO32
-	local rd, err = channel.consensus_read(p.strands[pick], { ch = c, coverage = coverage })
+	local rd, err = channel.consensus_read(p.strands[pick],
+		{ ch = c, coverage = coverage, soft = soft })
 	if not rd then return nil, err end
 	return { read = rd, id = p.ids[pick] }
 end

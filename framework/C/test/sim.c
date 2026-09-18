@@ -35,6 +35,7 @@ static void usage(void)
 		"  --p-trunc P    read truncation probability (default 0)\n"
 		"  --p-burst P    per-base burst-start probability (default 0)\n"
 		"  --burst-len N  bases substituted per burst (0..1000000, 0 = 8)\n"
+		"  --p-burst-del P  in a burst, delete instead of substitute (default 0)\n"
 		"  --seed S       base seed (default 1)\n"
 		"  --h H          dense homopolymer limit (default 3)\n"
 		"  --gene-raw R   raw bytes per gene (default 1024)\n"
@@ -45,16 +46,17 @@ static void usage(void)
 		"  --p-primer P   on-strand primer-site dropout (Banshee, default 0)\n"
 		"  --coverage K   reads majority-voted per molecule (default 1)\n"
 		"  --coverage-lambda L  Poisson mean reads per molecule (0 = fixed K)\n"
+		"  --soft         quality-weighted consensus (soft-decision)\n"
 		"  --inner M      inner RS parity bytes per gene (2..64, 0 = off)\n"
 		"  --library      library mode: gene molecules + outer code\n"
 		"  --replicas K   copies of every molecule (default 1)\n"
 		"  --parity M     parity molecules over the data genes (default 0)\n"
 		"  --header       print the CSV header first\n"
-		"whole:   mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,coverage,cov_lambda,inner,trials,\n"
+		"whole:   mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,p_burst_del,coverage,cov_lambda,soft,inner,trials,\n"
 		"         success,wrong,failed,dropped,rate,avg_repaired,avg_structural,avg_dead,avg_anomaly\n"
-		"access:  mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,p_access,p_cross,p_primer,\n"
-		"         coverage,cov_lambda,inner,trials,success,wrong,failed,dropped,cross,rate\n"
-		"library: mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,coverage,cov_lambda,inner,replicas,\n"
+		"access:  mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,p_burst_del,p_access,p_cross,p_primer,\n"
+		"         coverage,cov_lambda,soft,inner,trials,success,wrong,failed,dropped,cross,rate\n"
+		"library: mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,p_burst_del,coverage,cov_lambda,soft,inner,replicas,\n"
 		"         parity,genes,trials,success,wrong,failed,dropped,rate,avg_present\n");
 }
 
@@ -109,7 +111,7 @@ static int run_library(const uint8_t *payload, size_t plen, const chr_opts *co,
 	uint32_t coverage, double cov_lambda,
 	double p_sub, double p_ins, double p_del, double p_drop,
 	double p_sub_gc, double p_sub_hp, double p_trunc, double p_burst,
-	uint32_t burst_len,
+	uint32_t burst_len, double p_burst_del, int soft,
 	int header, const char *out_path)
 {
 	const char *err = nullptr;
@@ -178,8 +180,8 @@ static int run_library(const uint8_t *payload, size_t plen, const chr_opts *co,
 			for (uint32_t r = 0; r < replicas; r++) {
 				vivi_channel_opts ch = { p_sub, p_ins, p_del, p_drop,
 					seed + t * 977u + (uint32_t)s * 31u + r + 1u,
-					p_sub_gc, p_sub_hp, p_trunc, p_burst, burst_len };
-				vivi_consensus_opts cn = { ch, cov_s };
+					p_sub_gc, p_sub_hp, p_trunc, p_burst, burst_len, p_burst_del };
+				vivi_consensus_opts cn = { ch, cov_s, soft };
 				vivi_read rd;
 				if (!vivi_consensus_read(&rd, mol[s], mlen[s], &cn, &err)) {
 					fprintf(stderr, "vivi_sim: channel: %s\n", err ? err : "?");
@@ -187,6 +189,7 @@ static int run_library(const uint8_t *payload, size_t plen, const chr_opts *co,
 				}
 				if (rd.dropped) {
 					dropped++;
+					vivi_read_free(&rd);
 					continue;
 				}
 				genome_gene g;
@@ -199,7 +202,7 @@ static int run_library(const uint8_t *payload, size_t plen, const chr_opts *co,
 					}
 					vivi_dealloc(g.data);
 				}
-				vivi_bytes_free(&rd.strand);
+				vivi_read_free(&rd);
 				if (present[s]) break;
 			}
 		}
@@ -234,12 +237,12 @@ static int run_library(const uint8_t *payload, size_t plen, const chr_opts *co,
 		return 1;
 	}
 	if (header)
-		fprintf(fout, "mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,coverage,cov_lambda,inner,"
+		fprintf(fout, "mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,p_burst_del,coverage,cov_lambda,soft,inner,"
 			"replicas,parity,genes,trials,success,wrong,failed,dropped,rate,avg_present\n");
 	double dt = (double)trials;
-	fprintf(fout, "library,%g,%g,%g,%g,%g,%g,%g,%g,%u,%g,%d,%u,%u,%zu,%u,%lld,%lld,%lld,%lld,%.6f,%.4f\n",
-		p_sub, p_ins, p_del, p_drop, p_sub_gc, p_sub_hp, p_trunc, p_burst,
-		coverage, cov_lambda, co->inner, replicas, parity_m, n, trials,
+	fprintf(fout, "library,%g,%g,%g,%g,%g,%g,%g,%g,%g,%u,%g,%d,%d,%u,%u,%zu,%u,%lld,%lld,%lld,%lld,%.6f,%.4f\n",
+		p_sub, p_ins, p_del, p_drop, p_sub_gc, p_sub_hp, p_trunc, p_burst, p_burst_del,
+		coverage, cov_lambda, soft, co->inner, replicas, parity_m, n, trials,
 		success, wrong, failed, dropped, (double)success / dt,
 		(double)sum_present / dt);
 	if (fout != stdout) fclose(fout);
@@ -264,6 +267,8 @@ int main(int argc, char **argv)
 	double p_sub = 0.0, p_ins = 0.0, p_del = 0.0, p_drop = 0.0;
 	double p_sub_gc = 0.0, p_sub_hp = 0.0, p_trunc = 0.0, p_burst = 0.0;
 	uint32_t burst_len = 0;
+	double p_burst_del = 0.0;
+	int soft = 0;
 	double p_access = 0.0, p_cross = 0.0, p_primer = 0.0;
 	chr_opts co = { 1024, 0, 3, 4, 0, 0, 0, 0 };
 
@@ -284,6 +289,8 @@ int main(int argc, char **argv)
 		else if (!strcmp(a, "--p-trunc") && parse_double(v, &p_trunc)) { i++; }
 		else if (!strcmp(a, "--p-burst") && parse_double(v, &p_burst)) { i++; }
 		else if (!strcmp(a, "--burst-len") && parse_u32(v, &burst_len) && burst_len <= 1000000) { i++; }
+		else if (!strcmp(a, "--p-burst-del") && parse_double(v, &p_burst_del)) { i++; }
+		else if (!strcmp(a, "--soft")) { soft = 1; }
 		else if (!strcmp(a, "--p-access") && parse_double(v, &p_access)) { i++; }
 		else if (!strcmp(a, "--p-cross") && parse_double(v, &p_cross)) { i++; }
 		else if (!strcmp(a, "--p-primer") && parse_double(v, &p_primer)) { i++; }
@@ -358,7 +365,8 @@ int main(int argc, char **argv)
 	if (library_mode) {
 		int rc = run_library(payload, plen, &co, trials, seed, replicas, parity_m,
 			coverage, cov_lambda, p_sub, p_ins, p_del, p_drop,
-			p_sub_gc, p_sub_hp, p_trunc, p_burst, burst_len, header, out_path);
+			p_sub_gc, p_sub_hp, p_trunc, p_burst, burst_len, p_burst_del, soft,
+			header, out_path);
 		vivi_dealloc(payload);
 		return rc;
 	}
@@ -406,8 +414,8 @@ int main(int argc, char **argv)
 			}
 			vivi_amp_opts ao = { p_access, p_cross, seed + t + 1u,
 				{ p_sub, p_ins, p_del, 0.0, 0,
-					p_sub_gc, p_sub_hp, p_trunc, p_burst, burst_len },
-				p_primer, cov_t };
+					p_sub_gc, p_sub_hp, p_trunc, p_burst, burst_len, p_burst_del },
+				p_primer, cov_t, soft };
 			vivi_amp_result ar;
 			if (!vivi_pool_amplify(&ar, &pool, gid, &ao, &err)) {
 				fprintf(stderr, "vivi_sim: amplify: %s\n", err ? err : "?");
@@ -432,7 +440,7 @@ int main(int argc, char **argv)
 			} else {
 				failed++;
 			}
-			vivi_bytes_free(&ar.read.strand);
+			vivi_read_free(&ar.read);
 		}
 		FILE *out = stdout;
 		if (out_path && !(out = fopen(out_path, "wb"))) {
@@ -440,12 +448,12 @@ int main(int argc, char **argv)
 			return 1;
 		}
 		if (header)
-			fprintf(out, "mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,"
-				"p_access,p_cross,p_primer,coverage,cov_lambda,inner,trials,"
+			fprintf(out, "mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,p_burst_del,"
+				"p_access,p_cross,p_primer,coverage,cov_lambda,soft,inner,trials,"
 				"success,wrong,failed,dropped,cross,rate\n");
-		fprintf(out, "access,%g,%g,%g,%g,%g,%g,%g,%g,%g,%g,%g,%u,%g,%d,%u,%lld,%lld,%lld,%lld,%lld,%.6f\n",
-			p_sub, p_ins, p_del, p_drop, p_sub_gc, p_sub_hp, p_trunc, p_burst,
-			p_access, p_cross, p_primer, coverage, cov_lambda, co.inner, trials,
+		fprintf(out, "access,%g,%g,%g,%g,%g,%g,%g,%g,%g,%g,%g,%g,%u,%g,%d,%d,%u,%lld,%lld,%lld,%lld,%lld,%.6f\n",
+			p_sub, p_ins, p_del, p_drop, p_sub_gc, p_sub_hp, p_trunc, p_burst, p_burst_del,
+			p_access, p_cross, p_primer, coverage, cov_lambda, soft, co.inner, trials,
 			success, wrong, failed, dropped, cross, (double)success / (double)trials);
 		if (out != stdout) fclose(out);
 		vivi_pool_free(&pool);
@@ -466,14 +474,15 @@ int main(int argc, char **argv)
 				}
 				vivi_channel_opts ch = { p_sub, p_ins, p_del, p_drop,
 					seed + t * 2u + (uint32_t)h + 1u,
-					p_sub_gc, p_sub_hp, p_trunc, p_burst, burst_len };
-				vivi_consensus_opts cn = { ch, cov_h };
+					p_sub_gc, p_sub_hp, p_trunc, p_burst, burst_len, p_burst_del };
+				vivi_consensus_opts cn = { ch, cov_h, soft };
 				vivi_read rd;
 				if (!vivi_consensus_read(&rd, pristine[h], prlen[h], &cn, &err)) {
 					fprintf(stderr, "vivi_sim: channel: %s\n", err ? err : "?");
 					return 1;
 				}
 				(void)organism_replace_strand(org, (size_t)h, 0, rd.strand.data, rd.strand.len);
+				vivi_dealloc(rd.qual);
 				if (rd.dropped) dropped++;
 			}
 			vivi_bytes *data = nullptr;
@@ -499,13 +508,13 @@ int main(int argc, char **argv)
 			return 1;
 		}
 		if (header)
-			fprintf(out, "mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,"
-				"coverage,cov_lambda,inner,trials,success,wrong,failed,dropped,"
+			fprintf(out, "mode,p_sub,p_ins,p_del,p_drop,p_sub_gc,p_sub_hp,p_trunc,p_burst,p_burst_del,"
+				"coverage,cov_lambda,soft,inner,trials,success,wrong,failed,dropped,"
 				"rate,avg_repaired,avg_structural,avg_dead,avg_anomaly\n");
 		double dt = (double)trials;
-		fprintf(out, "whole,%g,%g,%g,%g,%g,%g,%g,%g,%u,%g,%d,%u,%lld,%lld,%lld,%lld,%.6f,%.4f,%.4f,%.4f,%.4f\n",
-			p_sub, p_ins, p_del, p_drop, p_sub_gc, p_sub_hp, p_trunc, p_burst,
-			coverage, cov_lambda, co.inner, trials,
+		fprintf(out, "whole,%g,%g,%g,%g,%g,%g,%g,%g,%g,%u,%g,%d,%d,%u,%lld,%lld,%lld,%lld,%.6f,%.4f,%.4f,%.4f,%.4f\n",
+			p_sub, p_ins, p_del, p_drop, p_sub_gc, p_sub_hp, p_trunc, p_burst, p_burst_del,
+			coverage, cov_lambda, soft, co.inner, trials,
 			success, wrong, failed, dropped, (double)success / dt,
 			(double)sum_repaired / dt, (double)sum_struct / dt,
 			(double)sum_dead / dt, (double)sum_anom / dt);

@@ -42,13 +42,14 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	vivi_channel_opts ch = { 0.01, 0.001, 0.001, 0.01, (uint32_t)size + 1u,
 		frac(data, size, 0, 0.05), frac(data, size, 1, 0.05),
 		frac(data, size, 2, 0.02), frac(data, size, 3, 0.02),
-		(uint32_t)(size > 4 ? data[4] % 8u : 0u) };
+		(uint32_t)(size > 4 ? data[4] % 8u : 0u),
+		frac(data, size, 5, 0.02) };
 	vivi_read rd;
 	if (vivi_channel_read(&rd, data, size, &ch, nullptr))
-		vivi_bytes_free(&rd.strand);
-	vivi_consensus_opts cc = { ch, 1u + (uint32_t)(size % 32) };
+		vivi_read_free(&rd);
+	vivi_consensus_opts cc = { ch, 1u + (uint32_t)(size % 32), (int)(size & 1) };
 	vivi_read cr;
 	if (vivi_consensus_read(&cr, data, size, &cc, nullptr))
-		vivi_bytes_free(&cr.strand);
+		vivi_read_free(&cr);
 	return 0;
 }

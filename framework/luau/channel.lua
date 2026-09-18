@@ -107,7 +107,7 @@ local function pack_digits(digits, m)
 	return concat(t)
 end
 
-local function channel_read(strand, opts)
+local function channel_read_impl(strand, opts, soft)
 	if type(strand) ~= "string" then return nil, "expected string" end
 	opts = opts or {}
 	local p_sub = opts.p_sub or 0.0
@@ -120,8 +120,9 @@ local function channel_read(strand, opts)
 	local p_trunc = opts.p_trunc or 0.0
 	local p_burst = opts.p_burst or 0.0
 	local burst_len = opts.burst_len or 0
-	local ps = { p_sub, p_ins, p_del, p_drop, p_sub_gc, p_sub_hp, p_trunc, p_burst }
-	for i = 1, 8 do
+	local p_burst_del = opts.p_burst_del or 0.0
+	local ps = { p_sub, p_ins, p_del, p_drop, p_sub_gc, p_sub_hp, p_trunc, p_burst, p_burst_del }
+	for i = 1, 9 do
 		if not (ps[i] >= 0.0 and ps[i] <= 1.0) then
 			return nil, "invalid probability"
 		end
@@ -136,6 +137,7 @@ local function channel_read(strand, opts)
 		limit = 1 + prng_next(rng) % (n - 1)
 	end
 	local digits = {}
+	local qual = soft and {} or nil
 	local m = 0
 	local burst_rem = 0
 	for i = 0, n - 1 do
@@ -153,8 +155,13 @@ local function channel_read(strand, opts)
 		end
 		if not prng_chance(rng, p_del) then
 			local psub = p_sub
+			local killed = false
 			if bursted then
-				psub = 1.0
+				if p_burst_del > 0.0 and prng_chance(rng, p_burst_del) then
+					killed = true
+				else
+					psub = 1.0
+				end
 			else
 				if p_sub_gc > 0.0 and (d == 1 or d == 2) then
 					psub = 1.0 - (1.0 - psub) * (1.0 - p_sub_gc)
@@ -163,13 +170,17 @@ local function channel_read(strand, opts)
 					psub = 1.0 - (1.0 - psub) * (1.0 - p_sub_hp)
 				end
 			end
-			if prng_chance(rng, psub) then
-				local k = prng_next(rng) % 3
-				d = (d + 1 + k) % 4
-			end
-			if limit == 0 or m < limit then
-				m = m + 1
-				digits[m] = d
+			if not killed then
+				local sub = prng_chance(rng, psub)
+				if sub then
+					local k = prng_next(rng) % 3
+					d = (d + 1 + k) % 4
+				end
+				if limit == 0 or m < limit then
+					m = m + 1
+					digits[m] = d
+					if qual then qual[m] = sub and 4 or 60 end
+				end
 			end
 		end
 		if prng_chance(rng, p_ins) then
@@ -177,20 +188,47 @@ local function channel_read(strand, opts)
 			if limit == 0 or m < limit then
 				m = m + 1
 				digits[m] = ins
+				if qual then qual[m] = 4 end
 			end
 		end
 	end
+	if soft then
+		return { strand = pack_digits(digits, m), bases = m, dropped = 0, qual = qual }
+	end
 	return { strand = pack_digits(digits, m), bases = m, dropped = 0 }
+end
+
+local function channel_read(strand, opts)
+	return channel_read_impl(strand, opts, false)
+end
+
+local function channel_read_soft(strand, opts)
+	return channel_read_impl(strand, opts, true)
+end
+
+local function read_free(rd)
+	if not rd then return end
+	rd.strand = nil
+	rd.qual = nil
+	rd.bases = 0
+	rd.dropped = 0
 end
 
 local function consensus_read(strand, opts)
 	if opts == nil then return channel_read(strand, nil) end
 	local ch = opts.ch
 	local coverage = opts.coverage or 0
-	if coverage <= 1 then return channel_read(strand, ch) end
+	local soft = opts.soft ~= nil and opts.soft ~= false and opts.soft ~= 0
+	if coverage <= 1 then
+		if soft then return channel_read_soft(strand, ch) end
+		return channel_read(strand, ch)
+	end
 	if type(strand) ~= "string" then return nil, "expected string" end
 	local n = #strand * 4
-	if n == 0 then return channel_read(strand, ch) end
+	if n == 0 then
+		if soft then return channel_read_soft(strand, ch) end
+		return channel_read(strand, ch)
+	end
 	local counts = {}
 	for i = 0, n * 4 - 1 do counts[i] = 0 end
 	local survivors = 0
@@ -198,18 +236,23 @@ local function consensus_read(strand, opts)
 		local c = {}
 		if ch then for k, v in pairs(ch) do c[k] = v end end
 		c.seed = ((ch and ch.seed or 0) + r) % TWO32
-		local rd, err = channel_read(strand, c)
+		local rd, err
+		if soft then rd, err = channel_read_soft(strand, c) else rd, err = channel_read(strand, c) end
 		if not rd then return nil, err end
 		if rd.dropped ~= 1 then
 			if rd.bases ~= n then
+				read_free(rd)
 				return nil, "consensus requires equal-length reads (no indels)"
 			end
 			for i = 0, n - 1 do
+				local w = 1
+				if soft and rd.qual then w = rd.qual[i + 1] + 1 end
 				local idx = i * 4 + digit_at(rd.strand, i)
-				counts[idx] = counts[idx] + 1
+				counts[idx] = counts[idx] + w
 			end
 			survivors = survivors + 1
 		end
+		read_free(rd)
 	end
 	if survivors == 0 then
 		return { strand = "", bases = 0, dropped = 1 }
@@ -227,6 +270,8 @@ end
 
 return {
 	read = channel_read,
+	read_soft = channel_read_soft,
+	read_free = read_free,
 	consensus_read = consensus_read,
 	prng_new = prng_new,
 	prng_next = prng_next,

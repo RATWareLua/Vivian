@@ -383,17 +383,17 @@ static void test_channel(void)
 	rands(src, sizeof(src));
 	const char *err;
 	vivi_read rd;
-	vivi_channel_opts z = { 0, 0, 0, 0, 7, 0.0, 0.0, 0.0, 0.0, 0 };
+	vivi_channel_opts z = { 0, 0, 0, 0, 7, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
 	CHECK(vivi_channel_read(&rd, src, sizeof(src), &z, &err), "channel identity");
 	CHECK(!rd.dropped && rd.bases == 32 && rd.strand.len == 8
 		&& memcmp(rd.strand.data, src, 8) == 0, "channel identity bytes");
 	vivi_bytes_free(&rd.strand);
 
-	vivi_channel_opts drop = { 0, 0, 0, 1.0, 7, 0.0, 0.0, 0.0, 0.0, 0 };
+	vivi_channel_opts drop = { 0, 0, 0, 1.0, 7, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
 	CHECK(vivi_channel_read(&rd, src, sizeof(src), &drop, &err), "channel drop");
 	CHECK(rd.dropped && rd.strand.data == nullptr && rd.bases == 0, "channel dropped read");
 
-	vivi_channel_opts sub = { 1.0, 0, 0, 0, 123, 0.0, 0.0, 0.0, 0.0, 0 };
+	vivi_channel_opts sub = { 1.0, 0, 0, 0, 123, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
 	CHECK(vivi_channel_read(&rd, src, sizeof(src), &sub, &err), "channel substitution");
 	CHECK(!rd.dropped && rd.bases == 32 && rd.strand.len == 8, "substitution keeps shape");
 	int changed = 0;
@@ -411,16 +411,16 @@ static void test_channel(void)
 	vivi_bytes_free(&rd2.strand);
 	vivi_bytes_free(&rd.strand);
 
-	vivi_channel_opts ins = { 0, 1.0, 0, 0, 4, 0.0, 0.0, 0.0, 0.0, 0 };
+	vivi_channel_opts ins = { 0, 1.0, 0, 0, 4, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
 	CHECK(vivi_channel_read(&rd, src, sizeof(src), &ins, &err), "channel insertion");
 	CHECK(!rd.dropped && rd.bases == 64 && rd.strand.len == 16, "insertion doubles bases");
 	vivi_bytes_free(&rd.strand);
 
-	vivi_channel_opts del = { 0, 0, 1.0, 0, 4, 0.0, 0.0, 0.0, 0.0, 0 };
+	vivi_channel_opts del = { 0, 0, 1.0, 0, 4, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
 	CHECK(vivi_channel_read(&rd, src, sizeof(src), &del, &err), "channel deletion");
 	CHECK(!rd.dropped && rd.bases == 0 && rd.strand.data == nullptr, "deletion empties read");
 
-	vivi_channel_opts bad = { 1.5, 0, 0, 0, 1, 0.0, 0.0, 0.0, 0.0, 0 };
+	vivi_channel_opts bad = { 1.5, 0, 0, 0, 1, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
 	CHECK(!vivi_channel_read(&rd, src, sizeof(src), &bad, &err), "channel rejects bad rate");
 	(void)err;
 
@@ -450,7 +450,7 @@ static void test_realistic_channel(void)
 	static const uint8_t strand[8] = { 0x1B, 0xE4, 0x09, 0x7A, 0xC6, 0x33, 0x90, 0x5D };
 	vivi_read rd;
 
-	vivi_channel_opts pin = { 0.1, 0, 0, 0, 7, 0.0, 0.0, 0.0, 0.0, 0 };
+	vivi_channel_opts pin = { 0.1, 0, 0, 0, 7, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
 	CHECK(vivi_channel_read(&rd, strand, 8, &pin, &err), "realistic pinned read");
 	static const uint8_t want[8] = { 0x3B, 0xE4, 0x09, 0x7A, 0xC6, 0x33, 0xA0, 0x4D };
 	CHECK(rd.strand.len == 8 && memcmp(rd.strand.data, want, 8) == 0,
@@ -458,7 +458,7 @@ static void test_realistic_channel(void)
 	vivi_bytes_free(&rd.strand);
 
 	static const uint8_t gcstrand[2] = { 0x1B, 0x1B };
-	vivi_channel_opts gco = { 0, 0, 0, 0, 11, 1.0, 0.0, 0.0, 0.0, 0 };
+	vivi_channel_opts gco = { 0, 0, 0, 0, 11, 1.0, 0.0, 0.0, 0.0, 0, 0.0 };
 	CHECK(vivi_channel_read(&rd, gcstrand, 2, &gco, &err), "gc-biased read");
 	CHECK(!rd.dropped && rd.bases == 8, "gc-biased keeps shape");
 	static const int gc_orig[8] = { 0, 1, 2, 3, 0, 1, 2, 3 };
@@ -471,7 +471,7 @@ static void test_realistic_channel(void)
 	vivi_bytes_free(&rd.strand);
 
 	static const uint8_t hpstrand[2] = { 0x06, 0xAC };
-	vivi_channel_opts hpo = { 0, 0, 0, 0, 13, 0.0, 1.0, 0.0, 0.0, 0 };
+	vivi_channel_opts hpo = { 0, 0, 0, 0, 13, 0.0, 1.0, 0.0, 0.0, 0, 0.0 };
 	CHECK(vivi_channel_read(&rd, hpstrand, 2, &hpo, &err), "hp-biased read");
 	CHECK(!rd.dropped && rd.bases == 8, "hp-biased keeps shape");
 	static const int hp_orig[8] = { 0, 0, 1, 2, 2, 2, 3, 0 };
@@ -484,12 +484,12 @@ static void test_realistic_channel(void)
 	CHECK(hp_ok, "p_sub_hp substitutes only homopolymer bases");
 	vivi_bytes_free(&rd.strand);
 
-	vivi_channel_opts tro = { 0, 0, 0, 0, 21, 0.0, 0.0, 1.0, 0.0, 0 };
+	vivi_channel_opts tro = { 0, 0, 0, 0, 21, 0.0, 0.0, 1.0, 0.0, 0, 0.0 };
 	CHECK(vivi_channel_read(&rd, strand, 8, &tro, &err), "trunc read");
 	CHECK(!rd.dropped && rd.bases >= 1 && rd.bases < 32, "p_trunc shortens the read");
 	vivi_bytes_free(&rd.strand);
 
-	vivi_channel_opts buo = { 0, 0, 0, 0, 31, 0.0, 0.0, 0.0, 1.0, 4 };
+	vivi_channel_opts buo = { 0, 0, 0, 0, 31, 0.0, 0.0, 0.0, 1.0, 4, 0.0 };
 	CHECK(vivi_channel_read(&rd, strand, 8, &buo, &err), "burst read");
 	CHECK(!rd.dropped && rd.bases == 32, "burst keeps shape");
 	int run = 0, maxrun = 0;
@@ -501,14 +501,14 @@ static void test_realistic_channel(void)
 	CHECK(maxrun >= 4, "p_burst substitutes a run of at least 4");
 	vivi_bytes_free(&rd.strand);
 
-	vivi_channel_opts badgc = { 0, 0, 0, 0, 1, 1.5, 0.0, 0.0, 0.0, 0 };
+	vivi_channel_opts badgc = { 0, 0, 0, 0, 1, 1.5, 0.0, 0.0, 0.0, 0, 0.0 };
 	CHECK(!vivi_channel_read(&rd, strand, 8, &badgc, &err)
 		&& err && strcmp(err, "invalid probability") == 0, "rejects bad p_sub_gc");
-	vivi_channel_opts badhp = { 0, 0, 0, 0, 1, 0.0, 1.5, 0.0, 0.0, 0 };
+	vivi_channel_opts badhp = { 0, 0, 0, 0, 1, 0.0, 1.5, 0.0, 0.0, 0, 0.0 };
 	CHECK(!vivi_channel_read(&rd, strand, 8, &badhp, &err), "rejects bad p_sub_hp");
-	vivi_channel_opts badtr = { 0, 0, 0, 0, 1, 0.0, 0.0, 2.0, 0.0, 0 };
+	vivi_channel_opts badtr = { 0, 0, 0, 0, 1, 0.0, 0.0, 2.0, 0.0, 0, 0.0 };
 	CHECK(!vivi_channel_read(&rd, strand, 8, &badtr, &err), "rejects bad p_trunc");
-	vivi_channel_opts badbu = { 0, 0, 0, 0, 1, 0.0, 0.0, 0.0, -0.001, 0 };
+	vivi_channel_opts badbu = { 0, 0, 0, 0, 1, 0.0, 0.0, 0.0, -0.001, 0, 0.0 };
 	CHECK(!vivi_channel_read(&rd, strand, 8, &badbu, &err), "rejects bad p_burst");
 }
 
@@ -624,11 +624,11 @@ static void test_consensus(void)
 	rands(src, sizeof(src));
 	size_t n = sizeof(src) * 4;
 
-	vivi_channel_opts ch = { 0.05, 0, 0, 0, 99, 0.0, 0.0, 0.0, 0.0, 0 };
+	vivi_channel_opts ch = { 0.05, 0, 0, 0, 99, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
 	vivi_read plain;
 	CHECK(vivi_channel_read(&plain, src, sizeof(src), &ch, &err), "consensus plain read");
 
-	vivi_consensus_opts one = { ch, 1 };
+	vivi_consensus_opts one = { ch, 1, 0 };
 	vivi_read c1;
 	CHECK(vivi_consensus_read(&c1, src, sizeof(src), &one, &err), "consensus coverage 1");
 	CHECK(c1.bases == plain.bases && c1.strand.len == plain.strand.len
@@ -636,7 +636,7 @@ static void test_consensus(void)
 		"coverage 1 matches the plain channel");
 	vivi_bytes_free(&c1.strand);
 
-	vivi_consensus_opts zero = { ch, 0 };
+	vivi_consensus_opts zero = { ch, 0, 0 };
 	vivi_read c0;
 	CHECK(vivi_consensus_read(&c0, src, sizeof(src), &zero, &err), "consensus coverage 0");
 	CHECK(c0.strand.len == plain.strand.len
@@ -644,15 +644,15 @@ static void test_consensus(void)
 		"coverage 0 matches the plain channel");
 	vivi_bytes_free(&c0.strand);
 
-	vivi_channel_opts id = { 0, 0, 0, 0, 5, 0.0, 0.0, 0.0, 0.0, 0 };
-	vivi_consensus_opts idc = { id, 9 };
+	vivi_channel_opts id = { 0, 0, 0, 0, 5, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
+	vivi_consensus_opts idc = { id, 9, 0 };
 	vivi_read ri;
 	CHECK(vivi_consensus_read(&ri, src, sizeof(src), &idc, &err), "consensus identity");
 	CHECK(ri.bases == n && ri.strand.len == sizeof(src)
 		&& memcmp(ri.strand.data, src, sizeof(src)) == 0, "consensus identity is lossless");
 	vivi_bytes_free(&ri.strand);
 
-	vivi_consensus_opts many = { ch, 21 };
+	vivi_consensus_opts many = { ch, 21, 0 };
 	vivi_read rc, rc2;
 	CHECK(vivi_consensus_read(&rc, src, sizeof(src), &many, &err), "consensus many reads");
 	CHECK(vivi_consensus_read(&rc2, src, sizeof(src), &many, &err), "consensus repeat");
@@ -671,27 +671,89 @@ static void test_consensus(void)
 	vivi_bytes_free(&rc.strand);
 	vivi_bytes_free(&rc2.strand);
 
-	vivi_channel_opts drop = { 0, 0, 0, 1.0, 3, 0.0, 0.0, 0.0, 0.0, 0 };
-	vivi_consensus_opts dropc = { drop, 5 };
+	vivi_channel_opts drop = { 0, 0, 0, 1.0, 3, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
+	vivi_consensus_opts dropc = { drop, 5, 0 };
 	vivi_read rdrop;
 	CHECK(vivi_consensus_read(&rdrop, src, sizeof(src), &dropc, &err), "consensus drop");
 	CHECK(rdrop.dropped && rdrop.strand.data == nullptr, "consensus with all reads dropped");
 
-	vivi_channel_opts ins = { 0, 1.0, 0, 0, 8, 0.0, 0.0, 0.0, 0.0, 0 };
-	vivi_consensus_opts insc = { ins, 3 };
+	vivi_channel_opts ins = { 0, 1.0, 0, 0, 8, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
+	vivi_consensus_opts insc = { ins, 3, 0 };
 	vivi_read rins;
 	CHECK(!vivi_consensus_read(&rins, src, sizeof(src), &insc, &err),
 		"consensus rejects insertions");
-	vivi_channel_opts del = { 0, 0, 1.0, 0, 8, 0.0, 0.0, 0.0, 0.0, 0 };
-	vivi_consensus_opts delc = { del, 3 };
+	vivi_channel_opts del = { 0, 0, 1.0, 0, 8, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
+	vivi_consensus_opts delc = { del, 3, 0 };
 	CHECK(!vivi_consensus_read(&rins, src, sizeof(src), &delc, &err),
 		"consensus rejects deletions");
 
-	vivi_consensus_opts guard = { ch, 3 };
+	vivi_consensus_opts guard = { ch, 3, 0 };
 	CHECK(!vivi_consensus_read(nullptr, src, sizeof(src), &guard, &err), "consensus null out");
 	CHECK(!vivi_consensus_read(&rins, nullptr, sizeof(src), &guard, &err), "consensus null strand");
 
 	vivi_bytes_free(&plain.strand);
+}
+
+/* ---------- soft information and correlated indels ---------- */
+static void test_soft(void)
+{
+	const char *err;
+	uint8_t src[64];
+	rands(src, sizeof(src));
+	size_t n = sizeof(src) * 4;
+
+	vivi_channel_opts clean = { 0, 0, 0, 0, 5, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
+	vivi_read rc;
+	CHECK(vivi_channel_read_soft(&rc, src, sizeof(src), &clean, &err), "soft read clean");
+	CHECK(rc.qual != nullptr && rc.bases == n, "soft quality allocated");
+	int all_hi = 1;
+	for (size_t i = 0; i < rc.bases; i++) if (rc.qual[i] != VIVI_QUAL_HI) all_hi = 0;
+	CHECK(all_hi, "clean bases are high quality");
+	vivi_read_free(&rc);
+	CHECK(rc.qual == nullptr && rc.strand.data == nullptr, "read free clears the read");
+
+	vivi_channel_opts suball = { 1.0, 0, 0, 0, 7, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
+	CHECK(vivi_channel_read_soft(&rc, src, sizeof(src), &suball, &err), "soft read substituted");
+	int all_lo = 1;
+	for (size_t i = 0; i < rc.bases; i++) if (rc.qual[i] != VIVI_QUAL_LO) all_lo = 0;
+	CHECK(all_lo, "substituted bases are low quality");
+	vivi_read_free(&rc);
+
+	vivi_channel_opts ch = { 0.4, 0, 0, 0, 12345, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
+	vivi_consensus_opts hard = { ch, 3, 0 };
+	vivi_consensus_opts soft = { ch, 3, 1 };
+	vivi_read h, s;
+	CHECK(vivi_consensus_read(&h, src, sizeof(src), &hard, &err), "hard consensus");
+	CHECK(vivi_consensus_read(&s, src, sizeof(src), &soft, &err), "soft consensus");
+	size_t hbad = 0, sbad = 0;
+	for (size_t i = 0; i < n; i++) {
+		int orig = (src[i / 4] >> (2 * (3 - i % 4))) & 3;
+		if (((h.strand.data[i / 4] >> (2 * (3 - i % 4))) & 3) != orig) hbad++;
+		if (((s.strand.data[i / 4] >> (2 * (3 - i % 4))) & 3) != orig) sbad++;
+	}
+	CHECK(hbad > 0, "hard consensus makes errors at low coverage");
+	CHECK(sbad < hbad, "soft consensus beats hard majority");
+	vivi_read_free(&h);
+	vivi_read_free(&s);
+}
+
+static void test_burst_indel(void)
+{
+	const char *err;
+	uint8_t src[16];
+	rands(src, sizeof(src));
+	size_t n = sizeof(src) * 4;
+	vivi_read rd;
+	vivi_channel_opts del = { 0, 0, 0, 0, 4, 0.0, 0.0, 0.0, 1.0, 4, 1.0 };
+	CHECK(vivi_channel_read(&rd, src, sizeof(src), &del, &err), "burst-delete read");
+	CHECK(!rd.dropped && rd.bases < n, "correlated deletions shorten the read");
+	vivi_read_free(&rd);
+	vivi_channel_opts sub = { 0, 0, 0, 0, 4, 0.0, 0.0, 0.0, 1.0, 4, 0.0 };
+	CHECK(vivi_channel_read(&rd, src, sizeof(src), &sub, &err), "burst-substitution read");
+	CHECK(!rd.dropped && rd.bases == n, "substitution burst keeps the length");
+	vivi_read_free(&rd);
+	vivi_channel_opts bad = { 0, 0, 0, 0, 4, 0.0, 0.0, 0.0, 1.0, 4, 2.0 };
+	CHECK(!vivi_channel_read(&rd, src, sizeof(src), &bad, &err), "burst-del rejects bad rate");
 }
 
 /* ---------- inner RS code ---------- */
@@ -983,7 +1045,7 @@ static void test_pool(void)
 	CHECK(vivi_pool_add_chromosome(&pool, chr.data, chr.len, &err), "pool add chromosome");
 	CHECK(pool.count == 10, "pool holds every gene");
 
-	vivi_amp_opts ao = { 0.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0 }, 0.0, 1u };
+	vivi_amp_opts ao = { 0.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0, 0.0 }, 0.0, 1u, 0 };
 	vivi_amp_result a1, a2;
 	CHECK(vivi_pool_amplify(&a1, &pool, 3, &ao, &err), "pool amplify");
 	CHECK(vivi_pool_amplify(&a2, &pool, 3, &ao, &err), "pool amplify again");
@@ -999,16 +1061,16 @@ static void test_pool(void)
 	vivi_bytes_free(&a1.read.strand);
 	vivi_bytes_free(&a2.read.strand);
 
-	vivi_amp_opts fail = { 1.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0 }, 0.0, 1u };
+	vivi_amp_opts fail = { 1.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0, 0.0 }, 0.0, 1u, 0 };
 	CHECK(vivi_pool_amplify(&a1, &pool, 3, &fail, &err), "pool primer failure");
 	CHECK(a1.read.dropped && a1.id == -1, "pool dropped product");
 
 	/* VIV14NB4NSH33: the on-strand primer site itself can be hit */
-	vivi_amp_opts pdark = { 0.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0 }, 1.0, 1u };
+	vivi_amp_opts pdark = { 0.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0, 0.0 }, 1.0, 1u, 0 };
 	CHECK(vivi_pool_amplify(&a1, &pool, 3, &pdark, &err), "pool primer-site dropout");
 	CHECK(a1.read.dropped && a1.id == -1, "pool primer-site dark");
 
-	vivi_amp_opts xtalk = { 0.0, 1.0, 7, { 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0 }, 0.0, 1u };
+	vivi_amp_opts xtalk = { 0.0, 1.0, 7, { 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0, 0.0 }, 0.0, 1u, 0 };
 	CHECK(vivi_pool_amplify(&a1, &pool, 3, &xtalk, &err), "pool cross-talk");
 	CHECK(a1.id >= 0 && a1.id != 3, "pool off-target id");
 	vivi_bytes_free(&a1.read.strand);
@@ -1787,6 +1849,8 @@ int main(void)
 	test_realistic_channel();
 	test_consensus();
 	test_context();
+	test_soft();
+	test_burst_indel();
 	test_inner();
 	test_errors();
 	test_peek();

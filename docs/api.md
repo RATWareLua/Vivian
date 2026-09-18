@@ -515,21 +515,31 @@ One pass over the population: checkpoint, revive from the stem (also when
 
 ```c
 typedef struct {
-    double p_sub;   /* substitution probability per original base, [0, 1] */
-    double p_ins;   /* insertion probability after each original base, [0, 1] */
-    double p_del;   /* deletion probability per original base, [0, 1] */
-    double p_drop;  /* probability that the whole read is lost, [0, 1] */
-    uint32_t seed;  /* rng seed; 0 behaves as 1 */
+    double p_sub;       /* substitution probability per original base, [0, 1] */
+    double p_ins;       /* insertion probability after each original base, [0, 1] */
+    double p_del;       /* deletion probability per original base, [0, 1] */
+    double p_drop;      /* probability that the whole read is lost, [0, 1] */
+    uint32_t seed;      /* rng seed; 0 behaves as 1 */
+    double p_sub_gc;    /* extra substitution on G/C */
+    double p_sub_hp;    /* extra substitution inside a homopolymer run */
+    double p_trunc;     /* probability the read is truncated at a random base */
+    double p_burst;     /* per-base probability of starting a correlated burst */
+    uint32_t burst_len; /* bases per burst (0 = 8) */
+    double p_burst_del; /* in a burst, probability the base is deleted instead */
 } vivi_channel_opts;
 
 typedef struct {
     vivi_bytes strand;  /* damaged packed strand ({ NULL, 0 } when dropped) */
     size_t bases;       /* exact base count of the read */
     int dropped;        /* 1 = the read was lost */
+    uint8_t *qual;      /* per-base quality (bases bytes); NULL for a hard read */
 } vivi_read;
 
 [[nodiscard]] bool vivi_channel_read(vivi_read *out, const uint8_t *strand, size_t slen,
     const vivi_channel_opts *opts, const char **err);
+[[nodiscard]] bool vivi_channel_read_soft(vivi_read *out, const uint8_t *strand, size_t slen,
+    const vivi_channel_opts *opts, const char **err);
+void vivi_read_free(vivi_read *out);
 ```
 
 - `opts` may be `NULL` (identity channel); probabilities outside [0, 1] are
@@ -539,6 +549,11 @@ typedef struct {
 - A dropped read comes back as `dropped = 1` with `strand = { NULL, 0 }`.
 - The damaged sequence is repacked into whole bytes; `bases` is the exact
   base count (0..3 filler bases are appended as `A`).
+- `vivi_channel_read_soft` also fills `qual` (`VIVI_QUAL_HI` 60 for an
+  unchanged base, `VIVI_QUAL_LO` 4 for a substituted or inserted one); free
+  any read with `vivi_read_free`.
+- `vivi_consensus_read` (see `vivi_consensus_opts`) majority-votes `coverage`
+  reads; with `soft != 0` the vote is weighted by `qual + 1`.
 
 See [research.md](research.md) for the `vivi_sim` experiment tool, the CSV
 schema and measured success curves.
