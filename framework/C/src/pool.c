@@ -4,7 +4,7 @@
 #include <string.h>
 
 /* absorbs messages when a caller passes err == nullptr */
-static const char *pool_err_sink;
+static VIVI_THREAD_LOCAL const char *pool_err_sink;
 
 void vivi_pool_free(vivi_pool *p)
 {

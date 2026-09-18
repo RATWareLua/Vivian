@@ -4,7 +4,7 @@
 #include <string.h>
 
 /* absorbs messages when a caller passes err == nullptr */
-static const char *genome_err_sink;
+static VIVI_THREAD_LOCAL const char *genome_err_sink;
 
 static constexpr uint8_t genome_PROM[3] = { 0x1B, 0x1B, 0x1B };   /* ACGT x3 */
 static constexpr uint8_t genome_TERM[3] = { 0xE4, 0xE4, 0xE4 };   /* TGAC x3 */

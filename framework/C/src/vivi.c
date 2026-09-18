@@ -1,25 +1,90 @@
-/* vivi.c -- shared buffer, allocator hooks and rng helpers */
+/* vivi.c -- execution context, shared buffer, allocator hooks and rng helpers */
 #include <string.h>
 #include "vivi/vivi.h"
 
+struct vivi_context {
+	vivi_alloc_fn alloc_fn;
+	vivi_free_fn free_fn;
+	void *dna_ft[13];
+};
+
 #ifdef VIVI_NO_HOSTED
-static vivi_alloc_fn vivi_the_alloc = nullptr; /* must be set via vivi_set_allocator */
-static vivi_free_fn vivi_the_free = nullptr;
+static vivi_context vivi_default_ctx = { 0 };
 #else
 #include <stdlib.h>
-static vivi_alloc_fn vivi_the_alloc = malloc;
-static vivi_free_fn vivi_the_free = free;
+static vivi_context vivi_default_ctx = { malloc, free, { 0 } };
 #endif
+
+static VIVI_THREAD_LOCAL vivi_context *vivi_tls;
+
+static vivi_context *vivi_current_raw(void)
+{
+	return vivi_tls ? vivi_tls : &vivi_default_ctx;
+}
 
 void vivi_set_allocator(vivi_alloc_fn alloc_fn, vivi_free_fn free_fn)
 {
-	vivi_the_alloc = alloc_fn;
-	vivi_the_free = free_fn;
+	vivi_default_ctx.alloc_fn = alloc_fn;
+	vivi_default_ctx.free_fn = free_fn;
+}
+
+vivi_context *vivi_context_new(vivi_alloc_fn alloc_fn, vivi_free_fn free_fn)
+{
+	if (!alloc_fn) return nullptr;
+	vivi_context *ctx = alloc_fn(sizeof(vivi_context));
+	if (!ctx) return nullptr;
+	memset(ctx, 0, sizeof(*ctx));
+	ctx->alloc_fn = alloc_fn;
+	ctx->free_fn = free_fn;
+	return ctx;
+}
+
+void vivi_context_release_caches(vivi_context *ctx)
+{
+	if (!ctx) return;
+	vivi_free_fn f = ctx->free_fn;
+	for (int h = 0; h < 13; h++) {
+		if (ctx->dna_ft[h] && f) f(ctx->dna_ft[h]);
+		ctx->dna_ft[h] = nullptr;
+	}
+}
+
+void vivi_context_free(vivi_context *ctx)
+{
+	if (!ctx || ctx == &vivi_default_ctx) return;
+	vivi_context_release_caches(ctx);
+	vivi_free_fn f = ctx->free_fn;
+	if (f) f(ctx);
+}
+
+vivi_context *vivi_context_enter(vivi_context *ctx)
+{
+	vivi_context *prev = vivi_tls;
+	vivi_tls = ctx;
+	return prev;
+}
+
+vivi_context *vivi_context_leave(vivi_context *prev)
+{
+	vivi_context *cur = vivi_tls;
+	vivi_tls = prev;
+	return cur;
+}
+
+vivi_context *vivi_context_current(void)
+{
+	return vivi_current_raw();
+}
+
+void **vivi_context_dna_cache(vivi_context *ctx)
+{
+	return ctx->dna_ft;
 }
 
 void *vivi_alloc(size_t size)
 {
-	return vivi_the_alloc ? vivi_the_alloc(size) : nullptr;
+	vivi_context *ctx = vivi_current_raw();
+	return ctx->alloc_fn ? ctx->alloc_fn(size) : nullptr;
 }
 
 void *vivi_zalloc(size_t n, size_t size)
@@ -32,7 +97,8 @@ void *vivi_zalloc(size_t n, size_t size)
 
 void vivi_dealloc(void *p)
 {
-	if (vivi_the_free) vivi_the_free(p);
+	vivi_context *ctx = vivi_current_raw();
+	if (ctx->free_fn) ctx->free_fn(p);
 }
 
 bool vivi_buf_reserve(vivi_buf *b, size_t need)

@@ -1,52 +1,34 @@
 /* rs.c -- systematic Reed-Solomon over GF(256), byte-oriented research codec */
 #include "vivi/rs.h"
+#include "gf_tables.h"
 #include <string.h>
 
-#define GF_POLY 0x11Du
 #define RS_MAX_T 128
-
-static uint8_t gf_exp[512];
-static uint8_t gf_log[256];
-static int gf_ready;
-
-static void gf_init(void)
-{
-	if (gf_ready) return;
-	uint32_t x = 1;
-	for (int i = 0; i < 255; i++) {
-		gf_exp[i] = (uint8_t)x;
-		gf_log[x] = (uint8_t)i;
-		x <<= 1;
-		if (x & 0x100u) x ^= GF_POLY;
-	}
-	for (int i = 255; i < 512; i++) gf_exp[i] = gf_exp[i - 255];
-	gf_ready = 1;
-}
 
 static uint8_t gf_mul(uint8_t a, uint8_t b)
 {
 	if (!a || !b) return 0;
-	int t = (int)gf_log[a] + (int)gf_log[b];
+	int t = (int)VIVI_GF_LOG[a] + (int)VIVI_GF_LOG[b];
 	if (t >= 255) t -= 255;
-	return gf_exp[t];
+	return VIVI_GF_EXP[t];
 }
 
 static uint8_t gf_div(uint8_t a, uint8_t b)
 {
-	int t = (int)gf_log[a] - (int)gf_log[b];
+	int t = (int)VIVI_GF_LOG[a] - (int)VIVI_GF_LOG[b];
 	if (t < 0) t += 255;
-	return gf_exp[t];
+	return VIVI_GF_EXP[t];
 }
 
 static uint8_t gf_inv(uint8_t a)
 {
-	return gf_exp[255 - (int)gf_log[a]];
+	return VIVI_GF_EXP[255 - (int)VIVI_GF_LOG[a]];
 }
 
 static uint8_t gf_pow(uint8_t a, unsigned e)
 {
 	if (a == 0) return 0;
-	return gf_exp[(int)((unsigned)gf_log[a] * e % 255u)];
+	return VIVI_GF_EXP[(int)((unsigned)VIVI_GF_LOG[a] * e % 255u)];
 }
 
 /* Horner evaluation of a big-endian vector: sum v[i] * x^(n-1-i) */
@@ -92,15 +74,14 @@ static void lagrange_interp(const uint8_t *xs, const uint8_t *ys, size_t m, uint
 bool rs_encode(vivi_bytes *out, const uint8_t *data, size_t k, size_t m,
 	const char **err)
 {
-	static const char *sink;
+	const char *sink;
 	if (!err) err = &sink;
 	if (out) *out = (vivi_bytes){ 0 };
 	if (!out || (!data && k)) { *err = "expected buffers"; return false; }
 	if (m < 1 || k + m > RS_MAX_N) { *err = "invalid rs geometry"; return false; }
-	gf_init();
 	uint8_t xs[RS_MAX_N], ys[RS_MAX_N], parity[RS_MAX_N];
 	for (size_t j = 0; j < m; j++) {
-		xs[j] = gf_exp[j];
+		xs[j] = VIVI_GF_EXP[j];
 		ys[j] = gf_mul(poly_eval(data, k, xs[j]), gf_pow(xs[j], (unsigned)m));
 	}
 	lagrange_interp(xs, ys, m, parity);
@@ -114,7 +95,7 @@ bool rs_encode(vivi_bytes *out, const uint8_t *data, size_t k, size_t m,
 
 static void syndromes(const uint8_t *cw, size_t n, size_t m, uint8_t *S)
 {
-	for (size_t j = 0; j < m; j++) S[j] = poly_eval(cw, n, gf_exp[j]);
+	for (size_t j = 0; j < m; j++) S[j] = poly_eval(cw, n, VIVI_GF_EXP[j]);
 }
 
 static void berlekamp_massey(const uint8_t *S, size_t m, uint8_t *C, size_t *out_L)
@@ -178,12 +159,11 @@ static bool solve_values(const uint8_t *S, const uint8_t *X, size_t L, uint8_t *
 
 bool rs_decode(uint8_t *cw, size_t n, size_t k, size_t *corrected, const char **err)
 {
-	static const char *sink;
+	const char *sink;
 	if (!err) err = &sink;
 	if (corrected) *corrected = 0;
 	if (!cw || n > RS_MAX_N || k < 1 || k >= n) { *err = "invalid rs geometry"; return false; }
 	size_t m = n - k;
-	gf_init();
 	uint8_t S[RS_MAX_N];
 	syndromes(cw, n, m, S);
 	int nonzero = 0;
@@ -196,7 +176,7 @@ bool rs_decode(uint8_t *cw, size_t n, size_t k, size_t *corrected, const char **
 	uint8_t pos[RS_MAX_T], X[RS_MAX_T], e[RS_MAX_T];
 	size_t found = 0;
 	for (size_t i = 0; i < n; i++) {
-		uint8_t x = gf_exp[(unsigned)(n - 1 - i)];
+		uint8_t x = VIVI_GF_EXP[(unsigned)(n - 1 - i)];
 		uint8_t xinv = gf_inv(x);
 		uint8_t val = 0, pw = 1;
 		for (size_t t = 0; t <= L; t++) { val ^= gf_mul(C[t], pw); pw = gf_mul(pw, xinv); }

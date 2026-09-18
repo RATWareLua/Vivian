@@ -4,7 +4,7 @@
 #include <string.h>
 
 /* absorbs messages when a caller passes err == nullptr */
-static const char *chr_err_sink;
+static VIVI_THREAD_LOCAL const char *chr_err_sink;
 
 static constexpr uint8_t TELUNIT[3] = { 0xF2, 0xE3, 0x0E }; /* 2x TTAGGG */
 static constexpr uint8_t CMARK[3] = { 0x6D, 0x6D, 0x6D };   /* CTGA x3 */

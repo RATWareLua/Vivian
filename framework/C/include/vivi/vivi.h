@@ -35,11 +35,44 @@ typedef struct vivi_bytes {
 typedef void *(*vivi_alloc_fn)(size_t);
 typedef void (*vivi_free_fn)(void *);
 
+/* Legacy global hooks: they configure the process-wide DEFAULT context,
+ * used by threads that never call vivi_context_enter(). */
 void vivi_set_allocator(vivi_alloc_fn alloc_fn, vivi_free_fn free_fn);
 
 void *vivi_alloc(size_t size);            /* raw memory, may return nullptr */
 void *vivi_zalloc(size_t n, size_t size); /* calloc semantics: n*size, zeroed */
 void vivi_dealloc(void *p);               /* nullptr is a no-op */
+
+/* --- execution context ------------------------------------------------- */
+/* A context owns one allocator pair and the codec's lazy caches, so two
+ * threads or two subsystems stay independent. Enter a per-thread context
+ * before its allocations and keep it current until they are freed. */
+typedef struct vivi_context vivi_context;
+
+[[nodiscard]] vivi_context *vivi_context_new(vivi_alloc_fn alloc_fn, vivi_free_fn free_fn);
+void vivi_context_free(vivi_context *ctx);
+
+/* Set ctx as the current context for this thread; returns the previous
+ * one to pass back to vivi_context_leave(). */
+vivi_context *vivi_context_enter(vivi_context *ctx);
+vivi_context *vivi_context_leave(vivi_context *prev);
+
+/* Never NULL: this thread's context, or the process default. */
+vivi_context *vivi_context_current(void);
+
+/* Release the codec caches owned by ctx. */
+void vivi_context_release_caches(vivi_context *ctx);
+
+/* internal: the per-context DNA fast-table slots (13 entries) */
+void **vivi_context_dna_cache(vivi_context *ctx);
+
+/* thread-local storage qualifier: empty on a freestanding, single-threaded
+ * build where _Thread_local need not exist */
+#if defined(VIVI_NO_HOSTED)
+#define VIVI_THREAD_LOCAL
+#else
+#define VIVI_THREAD_LOCAL _Thread_local
+#endif
 
 static inline void vivi_bytes_free(vivi_bytes *b)
 {

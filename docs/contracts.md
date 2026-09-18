@@ -10,8 +10,14 @@ the rules that keep the genome model consistent.
 - Hosted builds default to `malloc`/`free`. Freestanding builds
   (`-DVIVI_NO_HOSTED`) start with **no** allocator: every call fails until
   `vivi_set_allocator()` is called once, before any other `vivi_*` call.
-- The allocator pair is global process state. Do not swap it while any
+- The default allocator pair is process-wide. Do not swap it while any
   library allocation is still alive; the free side must match the alloc side.
+- `vivi_context` is the execution-scoped alternative: it owns one allocator
+  pair and the codec's lazy caches. `vivi_context_enter(ctx)` makes it
+  current for the calling thread and `vivi_context_leave(prev)` restores;
+  `vivi_context_current()` is never NULL (it returns the default context when
+  none is entered). Free a context's data while its context is current —
+  `vivi_alloc`/`vivi_dealloc` use the current context.
 - `vivi_zalloc(n, size)` checks the `n * size` overflow for you.
 - The library is otherwise environment-free: no files, time, console or
   threads; only `memcpy`, `memset`, `memcmp` and the allocator hooks.
@@ -93,10 +99,15 @@ return.
 
 ## Concurrency
 
-There is none. The codec fast tables (`dna_free_caches()` clears them) and
-the allocator hooks are process-global mutable state. Use one lock around
-the library, or one instance per thread with a thread-local allocator, if
-you need concurrency.
+Per-thread execution is supported through contexts. Each `vivi_context`
+owns its allocator pair and its own codec fast tables, the error sinks are
+`VIVI_THREAD_LOCAL`, and the GF(256) tables are immutable compile-time
+constants, so two threads that each enter their own context do not share
+mutable state and need no lock. The process-wide **default** context is
+shared: threads that never call `vivi_context_enter()` must serialize, or
+use one context per thread. Release a context's codec caches with
+`vivi_context_release_caches()` (or `dna_free_caches()` / free the whole
+context); the caches are per context, not global.
 
 ## Model semantics worth knowing
 
@@ -147,7 +158,10 @@ you need concurrency.
 ## Freestanding checklist
 
 1. Compile with `-DVIVI_NO_HOSTED`.
-2. Call `vivi_set_allocator(alloc, free)` before anything else.
+2. Call `vivi_set_allocator(alloc, free)` before anything else (configures
+   the default context), or create a context with `vivi_context_new()` and
+   enter it. `VIVI_THREAD_LOCAL` expands to nothing there, so contexts still
+   work single-threaded.
 3. Provide `memcpy`, `memset`, `memcmp` (standard requires them).
 4. A symbol audit of a linked image shows only those three libc names
    (plus toolchain markers such as `_fltused` on MSVC) and `vivi_*`.

@@ -7,6 +7,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#if !defined(VIVI_NO_HOSTED) && !defined(__STDC_NO_THREADS__)
+#define VIVI_TEST_THREADS 1
+#include <threads.h>
+#endif
 #include "vivi/organism.h"
 #include "vivi/channel.h"
 #include "vivi/pool.h"
@@ -505,6 +509,110 @@ static void test_realistic_channel(void)
 	CHECK(!vivi_channel_read(&rd, strand, 8, &badtr, &err), "rejects bad p_trunc");
 	vivi_channel_opts badbu = { 0, 0, 0, 0, 1, 0.0, 0.0, 0.0, -0.001, 0 };
 	CHECK(!vivi_channel_read(&rd, strand, 8, &badbu, &err), "rejects bad p_burst");
+}
+
+/* ---------- execution context / thread isolation ---------- */
+static long ctx_a_live, ctx_b_live, ctx_a_calls, ctx_b_calls;
+static void *ctx_alloc_a(size_t n) { void *p = malloc(n ? n : 1); if (p) { ctx_a_live++; ctx_a_calls++; } return p; }
+static void ctx_free_a(void *p) { if (p) ctx_a_live--; free(p); }
+static void *ctx_alloc_b(size_t n) { void *p = malloc(n ? n : 1); if (p) { ctx_b_live++; ctx_b_calls++; } return p; }
+static void ctx_free_b(void *p) { if (p) ctx_b_live--; free(p); }
+
+#ifdef VIVI_TEST_THREADS
+typedef struct { vivi_context *ctx; uint64_t seed; int ok; } thrd_encode_arg;
+
+static int thrd_encode_worker(void *p)
+{
+	thrd_encode_arg *a = p;
+	vivi_context_enter(a->ctx);
+	uint8_t buf[128];
+	vivi_prng r;
+	vivi_prng_init(&r, a->seed);
+	for (size_t i = 0; i < sizeof(buf); i++)
+		buf[i] = (uint8_t)(vivi_prng_next(&r) & 255u);
+	vivi_bytes e = { 0 };
+	const char *err;
+	dna_opts d = { 4, 0.05 };
+	a->ok = dna_encode(&e, buf, sizeof(buf), &d, &err) ? 1 : 0;
+	vivi_bytes_free(&e);
+	vivi_context_leave(nullptr);
+	return a->ok ? 0 : 1;
+}
+#endif
+
+static void test_context(void)
+{
+	const char *err;
+	vivi_context *defc = vivi_context_current();
+	CHECK(defc != nullptr, "default context exists");
+	CHECK(!vivi_context_new(nullptr, nullptr), "context new rejects null allocator");
+
+	vivi_context *ca = vivi_context_new(ctx_alloc_a, ctx_free_a);
+	vivi_context *cb = vivi_context_new(ctx_alloc_b, ctx_free_b);
+	CHECK(ca && cb, "context new");
+	if (!ca || !cb) return;
+
+	uint8_t data[64];
+	rands(data, sizeof(data));
+	dna_opts d = { 3, 0.05 };
+	vivi_bytes ea = { 0 }, eb = { 0 };
+
+	vivi_context *prev = vivi_context_enter(ca);
+	CHECK(vivi_context_current() == ca, "entered context is current");
+	long a0 = ctx_a_calls, b0 = ctx_b_calls;
+	CHECK(dna_encode(&ea, data, sizeof(data), &d, &err), "encode in context A");
+	CHECK(ctx_a_calls > a0 && ctx_b_calls == b0, "allocations isolated to A");
+	CHECK(vivi_context_dna_cache(ca)[3] != nullptr, "A populated its own codec cache");
+	CHECK(vivi_context_dna_cache(cb)[3] == nullptr, "B cache untouched");
+	vivi_context_leave(prev);
+	CHECK(vivi_context_current() == defc, "left back to default");
+
+	long b1 = ctx_b_calls;
+	prev = vivi_context_enter(cb);
+	CHECK(dna_encode(&eb, data, sizeof(data), &d, &err), "encode in context B");
+	CHECK(ctx_b_calls > b1 && ctx_b_live > 0, "B allocated its own cache");
+	CHECK(vivi_context_dna_cache(cb)[3] != nullptr, "B populated its own codec cache");
+	vivi_context_leave(prev);
+
+	CHECK(ea.len == eb.len && ea.len > 0 && memcmp(ea.data, eb.data, ea.len) == 0,
+		"same codec bytes across contexts");
+
+	prev = vivi_context_enter(ca);
+	vivi_bytes_free(&ea);
+	vivi_context_leave(prev);
+	prev = vivi_context_enter(cb);
+	vivi_bytes_free(&eb);
+	vivi_context_leave(prev);
+
+	vivi_context_free(ca);
+	CHECK(ctx_a_live == 0 && ctx_a_calls > 0, "context A fully released");
+	CHECK(ctx_b_live > 0, "freeing A leaves B alive");
+	vivi_context_free(cb);
+	CHECK(ctx_b_live == 0, "context B fully released");
+
+	vivi_context_free(vivi_context_current());
+	CHECK(vivi_context_current() != nullptr, "freeing the default context is a no-op");
+
+#ifdef VIVI_TEST_THREADS
+	thrd_t t1, t2;
+	thrd_encode_arg sa = { nullptr, 0xA1, 0 }, sb = { nullptr, 0xB2, 0 };
+	vivi_context *ta = vivi_context_new(ctx_alloc_a, ctx_free_a);
+	vivi_context *tb = vivi_context_new(ctx_alloc_b, ctx_free_b);
+	sa.ctx = ta;
+	sb.ctx = tb;
+	CHECK(ta && tb, "thread contexts");
+	if (ta && tb) {
+		int rc1 = thrd_create(&t1, thrd_encode_worker, &sa);
+		int rc2 = thrd_create(&t2, thrd_encode_worker, &sb);
+		CHECK(rc1 == thrd_success && rc2 == thrd_success, "threads started");
+		if (rc1 == thrd_success) thrd_join(t1, nullptr);
+		if (rc2 == thrd_success) thrd_join(t2, nullptr);
+		CHECK(sa.ok && sb.ok, "both threads encoded");
+		vivi_context_free(ta);
+		vivi_context_free(tb);
+		CHECK(ctx_a_live == 0 && ctx_b_live == 0, "thread contexts released");
+	}
+#endif
 }
 
 /* ---------- consensus / coverage ---------- */
@@ -1472,6 +1580,7 @@ int main(void)
 	test_channel();
 	test_realistic_channel();
 	test_consensus();
+	test_context();
 	test_inner();
 	test_pool();
 	test_parity();

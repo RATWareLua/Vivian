@@ -55,7 +55,7 @@ physically survived.
   public.
 - Not a compressor: expect a small, deterministic size overhead (the
   VIV1 container adds ~3%).
-- Not production archival software — it is a rigorous toy: 9485-check test
+- Not production archival software — it is a rigorous toy: 8954-check test
   suite, official Chaskey-12 vectors, ASan-clean, but experimental.
 
 ## Quick start
@@ -67,7 +67,7 @@ beyond the CRT's `memcpy/memset/memcmp`:
 cd framework\C
 build.bat lib        rem framework only -> vivi.lib
 build.bat            rem + test suite + interactive demo
-vivi_test.exe        rem pass=9485 fail=0
+vivi_test.exe        rem pass=8954 fail=0
 build.bat density    rem packing-density report (bits/nt)
 build.bat sim        rem channel experiment sweep (CSV)
 build.bat research   rem full parameter sweeps -> research_*.csv
@@ -127,8 +127,9 @@ src\organism.c`
 
 The library is environment-agnostic: no OS calls, no files, no console,
 no clock, no threads, no stdio. It only asks for raw memory through
-`vivi_set_allocator()` (hosted builds default to `malloc/free`). For
-freestanding targets:
+`vivi_set_allocator()` (hosted builds default to `malloc/free`) or a
+`vivi_context` (allocator + per-context codec caches, enterable per thread).
+For freestanding targets:
 
 ```c
 vivi_set_allocator(my_bump_alloc, my_noop_free);   /* once, first thing */
@@ -254,7 +255,7 @@ models on-strand site dropout. This is the final revision: layout frozen.
         │                  cell.h, organism.h; research: channel.h, pool.h,
         │                  parity.h, rs.h
         ├── src/           the framework itself (no I/O, no CRT assumptions)
-        ├── test/          9485-check self-test, density/sim tools, fuzz harnesses,
+        ├── test/          8954-check self-test, density/sim tools, fuzz harnesses,
         │                  xcheck C<->Lua byte-parity scenarios
         │                  (own entrypoints, hosted; fuzz targets POSIX-only)
         ├── demo/          interactive terminal tamagotchi (own entrypoint, hosted)
@@ -275,7 +276,7 @@ the byte parity enforced in CI.
 
 ## Verification
 
-- **9485/9485** checks: 64 official Chaskey-12 vectors; codec round-trips
+- **8954/8954** checks: 64 official Chaskey-12 vectors; codec round-trips
   for every parameter combination; constraint edge cases; gene/chromosome
   structure and corruption detection; diploid repair, checkpoints,
   senescence, stem rejuvenation; mutations, crossing-over mosaics; VIV1

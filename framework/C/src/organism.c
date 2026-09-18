@@ -263,13 +263,52 @@ bool organism_checkpoint_checked(vivi_organism *o, cell_report *rep, const char 
 	const char *ignored_error = nullptr;
 	if (!err) err = &ignored_error;
 	if (!rep) { *err = "expected report"; return false; }
-	*rep = (cell_report){ .failed = 1 };
-	vivi_organism *next = nullptr;
-	if (!organism_clone(&next, o, err)) return false;
-	bool ok = organism_checkpoint_staged(next, rep, err);
-	if (ok) organism_commit(o, next);
-	organism_free(next);
-	return ok;
+	if (!organism_valid(o)) {
+		*rep = (cell_report){ .failed = 1 };
+		*err = "invalid organism";
+		return false;
+	}
+	size_t n = o->nchr;
+	vivi_bytes *na = vivi_zalloc(n, sizeof(vivi_bytes));
+	vivi_bytes *nb = vivi_zalloc(n, sizeof(vivi_bytes));
+	if (!na || !nb) {
+		vivi_dealloc(na);
+		vivi_dealloc(nb);
+		*rep = (cell_report){ .failed = 1 };
+		*err = "out of memory";
+		return false;
+	}
+	cell_report acc = { 0 };
+	for (size_t i = 0; i < n; i++) {
+		cell_report r;
+		if (!cell_checkpoint_pair(&na[i], &nb[i], o->hom[0][i], o->hlen[0][i],
+			o->hom[1][i], o->hlen[1][i], &r, err)) {
+			for (size_t k = 0; k < i; k++) {
+				vivi_bytes_free(&na[k]);
+				vivi_bytes_free(&nb[k]);
+			}
+			vivi_dealloc(na);
+			vivi_dealloc(nb);
+			*rep = (cell_report){ .failed = 1 };
+			return false;
+		}
+		acc.repaired += r.repaired;
+		acc.dead += r.dead;
+		acc.structural += r.structural;
+		acc.anomaly += r.anomaly;
+	}
+	for (size_t i = 0; i < n; i++) {
+		vivi_dealloc(o->hom[0][i]);
+		vivi_dealloc(o->hom[1][i]);
+		o->hom[0][i] = na[i].data;
+		o->hlen[0][i] = na[i].len;
+		o->hom[1][i] = nb[i].data;
+		o->hlen[1][i] = nb[i].len;
+	}
+	vivi_dealloc(na);
+	vivi_dealloc(nb);
+	*rep = acc;
+	return true;
 }
 
 cell_report organism_checkpoint(vivi_organism *o)
@@ -478,36 +517,50 @@ bool organism_mitosis(vivi_organism **out, vivi_organism *o, const char **err)
 
 static bool organism_damage_staged(vivi_organism *o, int count, uint32_t seed, const char **err)
 {
-	for (size_t i = 0; i < o->nchr; i++) {
-		vivi_bytes a, b;
-		if (!cell_damage_strand(&a, o->hom[0][i], o->hlen[0][i], count,
+	size_t n = o->nchr;
+	vivi_bytes *na = vivi_zalloc(n, sizeof(vivi_bytes));
+	vivi_bytes *nb = vivi_zalloc(n, sizeof(vivi_bytes));
+	if (!na || !nb) {
+		vivi_dealloc(na);
+		vivi_dealloc(nb);
+		*err = "out of memory";
+		return false;
+	}
+	for (size_t i = 0; i < n; i++) {
+		if (!cell_damage_strand(&na[i], o->hom[0][i], o->hlen[0][i], count,
 			seed + (uint32_t)i + 1, err))
-			return false;
-		if (!cell_damage_strand(&b, o->hom[1][i], o->hlen[1][i], count,
-			seed + 1000u + (uint32_t)i + 1, err)) {
-			vivi_bytes_free(&a);
-			return false;
-		}
+			goto fail;
+		if (!cell_damage_strand(&nb[i], o->hom[1][i], o->hlen[1][i], count,
+			seed + 1000u + (uint32_t)i + 1, err))
+			goto fail;
+	}
+	for (size_t i = 0; i < n; i++) {
 		vivi_dealloc(o->hom[0][i]);
 		vivi_dealloc(o->hom[1][i]);
-		o->hom[0][i] = a.data;
-		o->hlen[0][i] = a.len;
-		o->hom[1][i] = b.data;
-		o->hlen[1][i] = b.len;
+		o->hom[0][i] = na[i].data;
+		o->hlen[0][i] = na[i].len;
+		o->hom[1][i] = nb[i].data;
+		o->hlen[1][i] = nb[i].len;
 	}
+	vivi_dealloc(na);
+	vivi_dealloc(nb);
 	return true;
+fail:
+	for (size_t i = 0; i < n; i++) {
+		vivi_bytes_free(&na[i]);
+		vivi_bytes_free(&nb[i]);
+	}
+	vivi_dealloc(na);
+	vivi_dealloc(nb);
+	return false;
 }
 
 bool organism_damage(vivi_organism *o, int count, uint32_t seed, const char **err)
 {
 	const char *ignored_error = nullptr;
 	if (!err) err = &ignored_error;
-	vivi_organism *next = nullptr;
-	if (!organism_clone(&next, o, err)) return false;
-	bool ok = organism_damage_staged(next, count, seed, err);
-	if (ok) organism_commit(o, next);
-	organism_free(next);
-	return ok;
+	if (!organism_valid(o)) { *err = "invalid organism"; return false; }
+	return organism_damage_staged(o, count, seed, err);
 }
 
 bool organism_mutate(org_mut_result *out, vivi_organism *o, int count, uint32_t seed,

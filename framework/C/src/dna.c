@@ -3,7 +3,7 @@
 #include <string.h>
 
 /* absorbs messages when a caller passes err == nullptr */
-static const char *dna_err_sink;
+static VIVI_THREAD_LOCAL const char *dna_err_sink;
 
 constexpr uint32_t DNA_HDR_CONST = 0x1B87'3593u;
 
@@ -48,13 +48,13 @@ static uint8_t dna_ks_byte(dna_ks *k)
 	return (uint8_t)((k->word >> k->kleft) & 255u);
 }
 
-/* byte fast path: entry 0 = slow path, else 1 + nrun*128 + nlast*16 + ngc*2 */
-static uint32_t *dna_ft_cache[13];
-
+/* byte fast path: entry 0 = slow path, else 1 + nrun*128 + nlast*16 + ngc*2;
+ * the tables live in the current execution context, not in global state */
 static const uint32_t *dna_fast_table(int h)
 {
 	if (h < 1 || h > 12) return nullptr;
-	if (!dna_ft_cache[h]) {
+	void **cache = vivi_context_dna_cache(vivi_context_current());
+	if (!cache[h]) {
 		size_t count = (size_t)(h - 1) * 4 * 256;
 		uint32_t *t = vivi_zalloc(count ? count : 1, sizeof(uint32_t));
 		if (!t) return nullptr;
@@ -75,9 +75,9 @@ static const uint32_t *dna_fast_table(int h)
 				}
 			}
 		}
-		dna_ft_cache[h] = t;
+		cache[h] = t;
 	}
-	return dna_ft_cache[h];
+	return (const uint32_t *)cache[h];
 }
 
 /* whitened byte at 1-based stream position w (header is fixed, payload
@@ -586,10 +586,7 @@ bool dna_validate(const uint8_t *s, size_t n, int h, double eps, const char **er
 
 void dna_free_caches(void)
 {
-	for (int h = 1; h <= 12; h++) {
-		vivi_dealloc(dna_ft_cache[h]);
-		dna_ft_cache[h] = nullptr;
-	}
+	vivi_context_release_caches(vivi_context_current());
 }
 
 

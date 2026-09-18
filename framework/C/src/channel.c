@@ -3,7 +3,7 @@
 #include <string.h>
 
 /* absorbs messages when a caller passes err == nullptr */
-static const char *channel_err_sink;
+static VIVI_THREAD_LOCAL const char *channel_err_sink;
 
 static int digit_at(const uint8_t *s, size_t i)
 {
