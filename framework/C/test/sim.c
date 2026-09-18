@@ -378,9 +378,9 @@ int main(int argc, char **argv)
 	uint8_t *pristine[2];
 	size_t prlen[2];
 	for (int h = 0; h < 2; h++) {
-		prlen[h] = org->hlen[h][0];
+		const uint8_t *ps = organism_strand(org, (size_t)h, 0, &prlen[h]);
 		pristine[h] = vivi_alloc(prlen[h] ? prlen[h] : 1);
-		memcpy(pristine[h], org->hom[h][0], prlen[h]);
+		memcpy(pristine[h], ps, prlen[h]);
 	}
 
 	long long success = 0, wrong = 0, failed = 0, dropped = 0, cross = 0;
@@ -459,9 +459,7 @@ int main(int argc, char **argv)
 						+ (uint64_t)t * 2654435761u + (uint32_t)h + 13u);
 					cov_h = poisson_draw(cov_lambda, &cr);
 					if (cov_h == 0) {
-						vivi_dealloc(org->hom[h][0]);
-						org->hom[h][0] = nullptr;
-						org->hlen[h][0] = 0;
+						(void)organism_replace_strand(org, (size_t)h, 0, nullptr, 0);
 						dropped++;
 						continue;
 					}
@@ -475,9 +473,7 @@ int main(int argc, char **argv)
 					fprintf(stderr, "vivi_sim: channel: %s\n", err ? err : "?");
 					return 1;
 				}
-				vivi_dealloc(org->hom[h][0]);
-				org->hom[h][0] = rd.strand.data;
-				org->hlen[h][0] = rd.strand.len;
+				(void)organism_replace_strand(org, (size_t)h, 0, rd.strand.data, rd.strand.len);
 				if (rd.dropped) dropped++;
 			}
 			vivi_bytes *data = nullptr;
@@ -488,7 +484,7 @@ int main(int argc, char **argv)
 					success++;
 				else
 					wrong++;
-				vivi_bytes_free_n(data, org->nchr);
+				vivi_bytes_free_n(data, organism_count(org));
 			} else {
 				failed++;
 			}

@@ -166,9 +166,9 @@ static int do_encode(const uint8_t *in, size_t in_len, const char *out_path,
 	int ok = write_file(out_path, ser.data, ser.len, &err);
 	if (!ok) fprintf(stderr, "%s: %s\n", prog, err ? err : "?");
 	else if (co->json) fprintf(stderr, "encoded %zu bytes -> %zu bytes across %zu chromosome(s)\n",
-		in_len, ser.len, o->nchr);
+		in_len, ser.len, organism_count(o));
 	else printf("encoded %zu bytes -> %zu bytes across %zu chromosome(s)\n",
-		in_len, ser.len, o->nchr);
+		in_len, ser.len, organism_count(o));
 	vivi_bytes_free(&ser);
 	organism_free(o);
 	return ok ? 0 : 1;
@@ -201,16 +201,16 @@ static int do_decode(const uint8_t *in, size_t in_len, const char *out_path,
 	}
 	if (!co->json) print_report(&rep);
 	size_t total = 0;
-	for (size_t i = 0; i < o->nchr; i++) total += data[i].len;
+	for (size_t i = 0; i < organism_count(o); i++) total += data[i].len;
 	uint8_t *flat = malloc(total ? total : 1);
 	if (!flat) {
-		vivi_bytes_free_n(data, o->nchr);
+		vivi_bytes_free_n(data, organism_count(o));
 		organism_free(o);
 		fprintf(stderr, "%s: out of memory\n", prog);
 		return 1;
 	}
 	size_t pos = 0;
-	for (size_t i = 0; i < o->nchr; i++) {
+	for (size_t i = 0; i < organism_count(o); i++) {
 		memcpy(flat + pos, data[i].data, data[i].len);
 		pos += data[i].len;
 	}
@@ -220,12 +220,12 @@ static int do_decode(const uint8_t *in, size_t in_len, const char *out_path,
 		printf("{\"command\":\"decode\",\"bytes\":%zu,\"chromosomes\":%zu,"
 			"\"repaired\":%d,\"structural\":%d,\"dead\":%d,\"anomaly\":%d,"
 			"\"renewed\":%d,\"failed\":%d}\n",
-			total, o->nchr, rep.repaired, rep.structural, rep.dead,
+			total, organism_count(o), rep.repaired, rep.structural, rep.dead,
 			rep.anomaly, rep.renewed, rep.failed);
 	else if (ok)
-		printf("decoded %zu bytes from %zu chromosome(s)\n", total, o->nchr);
+		printf("decoded %zu bytes from %zu chromosome(s)\n", total, organism_count(o));
 	free(flat);
-	vivi_bytes_free_n(data, o->nchr);
+	vivi_bytes_free_n(data, organism_count(o));
 	organism_free(o);
 	return ok ? 0 : 1;
 }
@@ -275,25 +275,31 @@ static int do_inspect(const uint8_t *in, size_t in_len, int json)
 		return 1;
 	}
 	int rev = organism_container_version(in, in_len);
+	size_t n = organism_count(o);
 	if (json) {
 		printf("{\"command\":\"inspect\",\"container\":\"%s\",\"revision\":%d,"
 			"\"chromosomes\":%zu,\"generation\":%d,\"max_gen\":%d,\"dead\":%d,"
 			"\"chr\":[",
-			container_name(rev), rev, o->nchr, o->generation, o->max_gen, o->dead);
-		for (size_t i = 0; i < o->nchr; i++) {
+			container_name(rev), rev, n, organism_generation(o),
+			organism_max_generation(o), organism_is_dead(o));
+		for (size_t i = 0; i < n; i++) {
 			chr_record rec;
 			const char *e = nullptr;
+			size_t sl = 0;
+			const uint8_t *strand = organism_strand(o, 0, i, &sl);
 			if (i) printf(",");
-			if (chr_parse(&rec, o->hom[0][i], o->hlen[0][i], -1, &e)) {
-				int gene_raw = o->chr_opts[i].gene_raw ? o->chr_opts[i].gene_raw : 1024;
+			if (chr_parse(&rec, strand, sl, -1, &e)) {
+				int gene_raw = organism_chr_opts_at(o, i)->gene_raw
+					? organism_chr_opts_at(o, i)->gene_raw : 1024;
 				printf("{\"id\":%d,\"genes\":%zu,\"parity\":%d,\"inner\":%d,"
 					"\"rawlen\":%zu,\"cen\":%d,\"tel\":%d,\"primer\":%d,"
 					"\"gene_raw\":%d}",
-					o->chr_ids[i], rec.gene_count, rec.parity, rec.inner,
+					organism_chr_id_at(o, i), rec.gene_count, rec.parity, rec.inner,
 					rec.rawlen, rec.cen_ok, rec.telomere_ok, rec.primer, gene_raw);
 				chr_record_free(&rec);
 			} else {
-				printf("{\"id\":%d,\"error\":\"%s\"}", o->chr_ids[i], e ? e : "unreadable");
+				printf("{\"id\":%d,\"error\":\"%s\"}", organism_chr_id_at(o, i),
+					e ? e : "unreadable");
 			}
 		}
 		printf("]}\n");
@@ -302,21 +308,24 @@ static int do_inspect(const uint8_t *in, size_t in_len, int json)
 	}
 	printf("container: %s (revision %d)\n", container_name(rev), rev);
 	printf("chromosomes: %zu   generation: %d   max_gen: %d   dead: %d\n",
-		o->nchr, o->generation, o->max_gen, o->dead);
-	for (size_t i = 0; i < o->nchr; i++) {
+		n, organism_generation(o), organism_max_generation(o), organism_is_dead(o));
+	for (size_t i = 0; i < n; i++) {
 		chr_record rec;
 		const char *e = nullptr;
-		if (chr_parse(&rec, o->hom[0][i], o->hlen[0][i], -1, &e)) {
-			int gene_raw = o->chr_opts[i].gene_raw ? o->chr_opts[i].gene_raw : 1024;
+		size_t sl = 0;
+		const uint8_t *strand = organism_strand(o, 0, i, &sl);
+		if (chr_parse(&rec, strand, sl, -1, &e)) {
+			int gene_raw = organism_chr_opts_at(o, i)->gene_raw
+				? organism_chr_opts_at(o, i)->gene_raw : 1024;
 			char rawbuf[32];
 			if (rec.cen_version == 2) snprintf(rawbuf, sizeof(rawbuf), "%zu", rec.rawlen);
 			else snprintf(rawbuf, sizeof(rawbuf), "n/a");
 			printf("  chr %d: genes=%zu parity=%d inner=%d rawlen=%s gen=%d cen=%d tel=%d primer=%d gene_raw=%d\n",
-				o->chr_ids[i], rec.gene_count, rec.parity, rec.inner, rawbuf, rec.generation,
-				rec.cen_ok, rec.telomere_ok, rec.primer, gene_raw);
+				organism_chr_id_at(o, i), rec.gene_count, rec.parity, rec.inner, rawbuf,
+				rec.generation, rec.cen_ok, rec.telomere_ok, rec.primer, gene_raw);
 			chr_record_free(&rec);
 		} else {
-			printf("  chr %d: unreadable (%s)\n", o->chr_ids[i], e ? e : "?");
+			printf("  chr %d: unreadable (%s)\n", organism_chr_id_at(o, i), e ? e : "?");
 		}
 	}
 	organism_free(o);
@@ -332,18 +341,21 @@ static int do_verify(const uint8_t *in, size_t in_len, int json)
 		return 2;
 	}
 	int bad = 0;
-	size_t n = o->nchr;
+	size_t n = organism_count(o);
 	int vids[256], vstat[256], vcen[256];
 	size_t vclean[256], vrecov[256], vloci[256];
 	for (size_t i = 0; i < n; i++) {
-		vids[i] = o->chr_ids[i];
+		vids[i] = organism_chr_id_at(o, i);
 		vstat[i] = 0;
 		vcen[i] = 0;
 		vclean[i] = vrecov[i] = vloci[i] = 0;
 		chr_record a, b;
 		const char *ea = nullptr, *eb = nullptr;
-		int pa = chr_parse(&a, o->hom[0][i], o->hlen[0][i], -1, &ea);
-		int pb = chr_parse(&b, o->hom[1][i], o->hlen[1][i], -1, &eb);
+		size_t la = 0, lb = 0;
+		const uint8_t *sa = organism_strand(o, 0, i, &la);
+		const uint8_t *sb = organism_strand(o, 1, i, &lb);
+		int pa = chr_parse(&a, sa, la, -1, &ea);
+		int pb = chr_parse(&b, sb, lb, -1, &eb);
 		if (!pa && !pb) {
 			vstat[i] = 3;
 			bad = 1;

@@ -17,15 +17,20 @@ the rules that keep the genome model consistent.
 - **Read-only access** to an organism or cell goes through the accessors
   (`organism_count`, `organism_chr_id_at`, `organism_chr_opts_at`,
   `organism_generation`, `organism_max_generation`, `organism_is_dead`,
-  `organism_is_stem`, `cell_chr_id`, `cell_generation`,
-  `cell_max_generation`, `cell_is_dead`, `cell_is_stem`); stable code does
-  not dereference struct fields.
+  `organism_is_stem`, `organism_has_stem`, `cell_chr_id`, `cell_generation`,
+  `cell_max_generation`, `cell_is_dead`, `cell_is_stem`).
+- **Opaque objects**: `vivi_organism`, `vivi_cell` and `vivi_context` have no
+  public fields at all; their layout lives in `src/internal.h` and callers
+  must use the accessors (or `*_read` / `*_peek`). The research layer may use
+  the advanced strand accessors (`organism_strand` / `organism_strand_mut` /
+  `organism_replace_strand` / `organism_set_strand_len`,
+  `organism_set_max_generation`, and the `cell_*` equivalents).
 
-Everything else is the advanced, changeable layer: the **layout** of
-`vivi_organism`, `vivi_cell`, `chr_record` and `genome_gene`, and the exact
-wording of error strings. Fields may be appended to those structs and to the
-option structs (`chr_opts`, `vivi_channel_opts`, ...); initialize them with
-designated initializers so additions stay compatible.
+Everything else is the advanced, changeable layer: the value structs
+`chr_record` and `genome_gene` (fields may be appended), the option structs
+(`chr_opts`, `vivi_channel_opts`, `vivi_amp_opts`, ...), and the exact wording
+of error strings. Initialize option structs with designated initializers so
+additions stay compatible.
 
 ## Memory
 

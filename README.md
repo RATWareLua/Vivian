@@ -297,7 +297,8 @@ the byte parity enforced in CI.
   CI diffs the 68 lines.
 - A versioned stable API (`VIVI_API_VERSION 1.0`): execution contexts,
   status codes (`vivi_error_code`), read-only `cell_peek` / `organism_peek`,
-  and accessors so stable code never dereferences the advanced structs.
+  and opaque `vivi_organism` / `vivi_cell` / `vivi_context` reached only
+  through accessors (plus advanced strand accessors for research code).
 
 ## Status
 

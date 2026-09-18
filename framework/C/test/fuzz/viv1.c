@@ -42,7 +42,7 @@ static void load_one(const uint8_t *data, size_t size)
 	if (!organism_deserialize(&o, data, size, nullptr)) return;
 	vivi_bytes *rd = nullptr;
 	cell_report rep;
-	if (organism_read(&rd, o, &rep, nullptr)) vivi_bytes_free_n(rd, o->nchr);
+	if (organism_read(&rd, o, &rep, nullptr)) vivi_bytes_free_n(rd, organism_count(o));
 	organism_free(o);
 }
 

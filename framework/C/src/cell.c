@@ -1,5 +1,6 @@
 /* cell.c -- diploidy and repair, transliteration of cell.lua */
 #include "vivi/cell.h"
+#include "internal.h"
 #include <string.h>
 
 static bool cell_valid(const vivi_cell *c)
@@ -315,8 +316,32 @@ void cell_free(vivi_cell *c)
 int cell_chr_id(const vivi_cell *c) { return c ? c->chr_id : 0; }
 int cell_generation(const vivi_cell *c) { return c ? c->generation : 0; }
 int cell_max_generation(const vivi_cell *c) { return c ? c->max_gen : 0; }
+void cell_set_max_generation(vivi_cell *c, int max_gen) { if (c) c->max_gen = max_gen; }
 bool cell_is_dead(const vivi_cell *c) { return c ? c->dead != 0 : true; }
 bool cell_is_stem(const vivi_cell *c) { return c ? c->stem != 0 : false; }
+
+const uint8_t *cell_strand(const vivi_cell *c, size_t homolog, size_t *len)
+{
+	if (!c || homolog > 1) { if (len) *len = 0; return nullptr; }
+	if (len) *len = c->hlen[homolog];
+	return c->hom[homolog];
+}
+
+uint8_t *cell_strand_mut(vivi_cell *c, size_t homolog, size_t *len)
+{
+	if (!c || homolog > 1) { if (len) *len = 0; return nullptr; }
+	if (len) *len = c->hlen[homolog];
+	return c->hom[homolog];
+}
+
+bool cell_replace_strand(vivi_cell *c, size_t homolog, uint8_t *data, size_t len)
+{
+	if (!c || homolog > 1) return false;
+	vivi_dealloc(c->hom[homolog]);
+	c->hom[homolog] = data;
+	c->hlen[homolog] = len;
+	return true;
+}
 
 bool cell_checkpoint_checked(vivi_cell *c, cell_report *rep, const char **err)
 {

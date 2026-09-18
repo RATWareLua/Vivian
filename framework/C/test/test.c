@@ -771,13 +771,13 @@ static void test_inner(void)
 		CHECK(organism_serialize14nb(&ser, org, &err), "inner organism serialize");
 		vivi_organism *loaded = nullptr;
 		CHECK(organism_deserialize(&loaded, ser.data, ser.len, &err), "inner organism load");
-		CHECK(loaded && loaded->chr_opts[0].inner == 16, "inner inferred on load");
+		CHECK(loaded && organism_chr_opts_at(loaded, 0)->inner == 16, "inner inferred on load");
 		vivi_bytes *out = nullptr;
 		cell_report rep;
 		CHECK(loaded && organism_read(&out, loaded, &rep, &err), "inner organism read");
 		CHECK(out && out[0].len == sizeof(payload)
 			&& memcmp(out[0].data, payload, sizeof(payload)) == 0, "inner organism data");
-		if (out) vivi_bytes_free_n(out, loaded->nchr);
+		if (out) vivi_bytes_free_n(out, organism_count(loaded));
 		organism_free(loaded);
 		vivi_bytes_free(&ser);
 		organism_free(org);
@@ -826,10 +826,10 @@ static void test_peek(void)
 
 	{
 		vivi_bytes dmg;
-		CHECK(cell_damage_strand(&dmg, o->hom[0][1], o->hlen[0][1], 200, 9, &err), "peek damage");
-		vivi_dealloc(o->hom[0][1]);
-		o->hom[0][1] = dmg.data;
-		o->hlen[0][1] = dmg.len;
+		size_t l = 0;
+		const uint8_t *s = organism_strand(o, 0, 1, &l);
+		CHECK(cell_damage_strand(&dmg, s, l, 200, 9, &err), "peek damage");
+		(void)organism_replace_strand(o, 0, 1, dmg.data, dmg.len);
 	}
 	vivi_bytes before = { 0 };
 	CHECK(organism_serialize14nb(&before, o, &err), "peek snapshot before");
@@ -843,20 +843,19 @@ static void test_peek(void)
 	CHECK(organism_serialize14nb(&after, o, &err), "peek snapshot after");
 	CHECK(before.len == after.len && memcmp(before.data, after.data, before.len) == 0,
 		"peek leaves the organism untouched");
-	if (pk) vivi_bytes_free_n(pk, o->nchr);
+	if (pk) vivi_bytes_free_n(pk, organism_count(o));
 	vivi_bytes_free(&before);
 	vivi_bytes_free(&after);
 
 	{
 		vivi_bytes dmg;
-		(void)cell_damage_strand(&dmg, o->hom[0][1], o->hlen[0][1], 4000, 3, &err);
-		vivi_dealloc(o->hom[0][1]);
-		o->hom[0][1] = dmg.data;
-		o->hlen[0][1] = dmg.len;
-		(void)cell_damage_strand(&dmg, o->hom[1][1], o->hlen[1][1], 4000, 3, &err);
-		vivi_dealloc(o->hom[1][1]);
-		o->hom[1][1] = dmg.data;
-		o->hlen[1][1] = dmg.len;
+		size_t l = 0;
+		const uint8_t *s = organism_strand(o, 0, 1, &l);
+		(void)cell_damage_strand(&dmg, s, l, 4000, 3, &err);
+		(void)organism_replace_strand(o, 0, 1, dmg.data, dmg.len);
+		s = organism_strand(o, 1, 1, &l);
+		(void)cell_damage_strand(&dmg, s, l, 4000, 3, &err);
+		(void)organism_replace_strand(o, 1, 1, dmg.data, dmg.len);
 	}
 	vivi_bytes before2 = { 0 };
 	CHECK(organism_serialize14nb(&before2, o, &err), "peek snapshot2");
@@ -1108,10 +1107,10 @@ static void test_cells(void)
 	vivi_cell *c;
 	(void)cell_new(&c, 1, cdata, 3000, &co, &ERR);
 	vivi_bytes dmg;
-	(void)cell_damage_strand(&dmg, c->hom[0], c->hlen[0], 200, 42, &err);
-	vivi_dealloc(c->hom[0]);
-	c->hom[0] = dmg.data;
-	c->hlen[0] = dmg.len;
+	size_t l = 0;
+	const uint8_t *s = cell_strand(c, 0, &l);
+	(void)cell_damage_strand(&dmg, s, l, 200, 42, &err);
+	(void)cell_replace_strand(c, 0, dmg.data, dmg.len);
 	cell_report rep = cell_checkpoint(c);
 	CHECK(rep.repaired + rep.structural >= 1, "repair happened");
 	vivi_bytes data;
@@ -1135,35 +1134,34 @@ static void test_cells(void)
 	(void)cell_stem(&stem, 1, cdata, 3000, &co, &err);
 	vivi_cell *c2;
 	(void)cell_new(&c2, 1, cdata, 3000, &co, &err);
-	(void)cell_damage_strand(&dmg, c2->hom[0], c2->hlen[0], 500, 777, &err);
-	vivi_dealloc(c2->hom[0]);
-	c2->hom[0] = dmg.data;
-	c2->hlen[0] = dmg.len;
-	(void)cell_damage_strand(&dmg, c2->hom[1], c2->hlen[1], 500, 777, &err);
-	vivi_dealloc(c2->hom[1]);
-	c2->hom[1] = dmg.data;
-	c2->hlen[1] = dmg.len;
+	s = cell_strand(c2, 0, &l);
+	(void)cell_damage_strand(&dmg, s, l, 500, 777, &err);
+	(void)cell_replace_strand(c2, 0, dmg.data, dmg.len);
+	s = cell_strand(c2, 1, &l);
+	(void)cell_damage_strand(&dmg, s, l, 500, 777, &err);
+	(void)cell_replace_strand(c2, 1, dmg.data, dmg.len);
 	cell_checkpoint(c2);
 	CHECK(!cell_read(&data, c2, &rep, &err), "dead cell unreadable without stem");
 	cell_attach_stem(c2, stem);
 	CHECK(cell_read(&data, c2, &rep, &err), "stem rescue");
 	CHECK(data.len == 3000 && memcmp(data.data, cdata, 3000) == 0, "rescued data intact");
 	vivi_bytes_free(&data);
-	CHECK(c2->generation == 0, "renewed generation 0");
+	CHECK(cell_generation(c2) == 0, "renewed generation 0");
 
 	/* mitosis + Hayflick */
 	vivi_cell *par, *dau;
 	(void)cell_new(&par, 1, cdata, 3000, &co, &err);
 	CHECK(cell_mitosis(&dau, par, &err), "mitosis");
-	CHECK(dau->generation == 1 && par->generation == 1, "mitosis generation");
+	CHECK(cell_generation(dau) == 1 && cell_generation(par) == 1, "mitosis generation");
 	chr_record rec;
-	(void)chr_parse(&rec, dau->hom[0], dau->hlen[0], -1, &err);
+	s = cell_strand(dau, 0, &l);
+	(void)chr_parse(&rec, s, l, -1, &err);
 	CHECK(rec.generation == 1, "centromere generation synced");
 	chr_record_free(&rec);
 	cell_free(dau);
 	vivi_cell *aged;
 	(void)cell_new(&aged, 1, cdata, 3000, &co, &err);
-	aged->max_gen = 2;
+	cell_set_max_generation(aged, 2);
 	CHECK(cell_mitosis(&dau, aged, &err), "mitosis 1 ok");
 	cell_free(dau);
 	CHECK(cell_mitosis(&dau, aged, &err), "mitosis 2 ok");
@@ -1212,10 +1210,10 @@ static void test_organisms(void)
 	/* damage one chromosome in one homolog -> checkpoint heals */
 	{
 		vivi_bytes dmg;
-		(void)cell_damage_strand(&dmg, org->hom[0][1], org->hlen[0][1], 150, 5, &ERR);
-		vivi_dealloc(org->hom[0][1]);
-		org->hom[0][1] = dmg.data;
-		org->hlen[0][1] = dmg.len;
+		size_t l = 0;
+		const uint8_t *s = organism_strand(org, 0, 1, &l);
+		(void)cell_damage_strand(&dmg, s, l, 150, 5, &ERR);
+		(void)organism_replace_strand(org, 0, 1, dmg.data, dmg.len);
 	}
 	rep = organism_checkpoint(org);
 	CHECK(rep.repaired + rep.structural >= 1, "organism checkpoint repaired");
@@ -1231,14 +1229,13 @@ static void test_organisms(void)
 	organism_attach_stem(org2, niche);
 	{
 		vivi_bytes dmg;
-		(void)cell_damage_strand(&dmg, org2->hom[0][1], org2->hlen[0][1], 500, 777, &ERR);
-		vivi_dealloc(org2->hom[0][1]);
-		org2->hom[0][1] = dmg.data;
-		org2->hlen[0][1] = dmg.len;
-		(void)cell_damage_strand(&dmg, org2->hom[1][1], org2->hlen[1][1], 500, 777, &ERR);
-		vivi_dealloc(org2->hom[1][1]);
-		org2->hom[1][1] = dmg.data;
-		org2->hlen[1][1] = dmg.len;
+		size_t l = 0;
+		const uint8_t *s = organism_strand(org2, 0, 1, &l);
+		(void)cell_damage_strand(&dmg, s, l, 500, 777, &ERR);
+		(void)organism_replace_strand(org2, 0, 1, dmg.data, dmg.len);
+		s = organism_strand(org2, 1, 1, &l);
+		(void)cell_damage_strand(&dmg, s, l, 500, 777, &ERR);
+		(void)organism_replace_strand(org2, 1, 1, dmg.data, dmg.len);
 	}
 	CHECK(organism_read(&rd, org2, &rep, &ERR), "read auto-renews from stem");
 	CHECK(rd[1].len == 200 && memcmp(rd[1].data, d1, 200) == 0, "renewed data intact");
@@ -1250,14 +1247,14 @@ static void test_organisms(void)
 		vivi_organism *org3 = nullptr;
 		(void)organism_new(&org3, ids, opts, datas, lens, 2, 60, &ERR);
 		organism_attach_stem(org3, niche);
-		for (int h = 0; h < 2; h++) org3->hlen[h][1] = 1;
+		for (int h = 0; h < 2; h++) (void)organism_set_strand_len(org3, (size_t)h, 1, 1);
 		vivi_bytes *rr = nullptr;
 		int ok = organism_read(&rr, org3, &rep, &ERR);
 		CHECK(ok, "read renews after parse-level damage");
 		CHECK(ok && rep.renewed, "parse-level damage reports renewal");
 		CHECK(ok && rr[1].len == 200 && memcmp(rr[1].data, d1, 200) == 0,
 			"renewed data after parse-level damage");
-		if (rr) vivi_bytes_free_n(rr, org3->nchr);
+		if (rr) vivi_bytes_free_n(rr, organism_count(org3));
 		organism_free(org3);
 	}
 
@@ -1274,9 +1271,9 @@ static void test_organisms(void)
 		vivi_bytes *rr = nullptr;
 		int ok = organism_read(&rr, small, &rep, &ERR);
 		CHECK(ok, "renew from differently sized stem");
-		CHECK(ok && small->nchr == 2 && rr[1].len == 200
+		CHECK(ok && organism_count(small) == 2 && rr[1].len == 200
 			&& memcmp(rr[1].data, d1, 200) == 0, "renewed karyotype matches stem");
-		if (rr) vivi_bytes_free_n(rr, small->nchr);
+		if (rr) vivi_bytes_free_n(rr, organism_count(small));
 		organism_free(small);
 	}
 
@@ -1307,14 +1304,18 @@ static void test_organisms(void)
 	int allin = 1;
 	for (int i = 0; i < 2; i++) {
 		chr_record rc;
-		(void)chr_parse(&rc, child->hom[0][i], child->hlen[0][i], -1, &ERR);
+		size_t cl = 0;
+		const uint8_t *cs = organism_strand(child, 0, (size_t)i, &cl);
+		(void)chr_parse(&rc, cs, cl, -1, &ERR);
 		for (size_t k = 0; k < rc.gene_count; k++) {
 			genome_gene *g = &rc.genes[k];
 			int found = 0;
 			for (int p = 0; p < 2 && !found; p++) {
 				vivi_organism *parent = p ? pb : org;
 				chr_record rp;
-				if (!chr_parse(&rp, parent->hom[0][i], parent->hlen[0][i], -1, &ERR))
+				size_t pl = 0;
+				const uint8_t *ps = organism_strand(parent, 0, (size_t)i, &pl);
+				if (!chr_parse(&rp, ps, pl, -1, &ERR))
 					continue;
 				for (size_t q = 0; q < rp.gene_count && !found; q++)
 					if (rp.genes[q].crc_ok && rp.genes[q].data_len == g->data_len
@@ -1376,32 +1377,38 @@ static void test_viv14(void)
 
 	/* damage homolog 0 only: only VIV14 must keep both homologs */
 	vivi_bytes dmg = { 0 };
-	(void)cell_damage_strand(&dmg, org->hom[0][0], org->hlen[0][0], 40, 11, &err);
-	vivi_dealloc(org->hom[0][0]);
-	org->hom[0][0] = dmg.data;
-	org->hlen[0][0] = dmg.len;
-	size_t dl0 = org->hlen[0][0], dl1 = org->hlen[1][0];
+	size_t l0 = 0;
+	const uint8_t *s0 = organism_strand(org, 0, 0, &l0);
+	(void)cell_damage_strand(&dmg, s0, l0, 40, 11, &err);
+	(void)organism_replace_strand(org, 0, 0, dmg.data, dmg.len);
+	size_t dl0 = 0, dl1 = 0;
+	const uint8_t *h0 = organism_strand(org, 0, 0, &dl0);
+	const uint8_t *h1 = organism_strand(org, 1, 0, &dl1);
 	uint8_t *stored0 = vivi_alloc(dl0);
 	uint8_t *stored1 = vivi_alloc(dl1);
-	memcpy(stored0, org->hom[0][0], dl0);
-	memcpy(stored1, org->hom[1][0], dl1);
+	memcpy(stored0, h0, dl0);
+	memcpy(stored1, h1, dl1);
 
 	vivi_bytes s14 = { 0 };
 	CHECK(organism_serialize14(&s14, org, &err), "viv14 serialize damaged pair");
 	vivi_organism *loaded = nullptr;
 	CHECK(organism_deserialize(&loaded, s14.data, s14.len, &err), "viv14 load pair");
-	CHECK(loaded->nchr == 1 && loaded->max_gen == 7 && loaded->generation == 0,
+	size_t ll0 = 0, ll1 = 0;
+	const uint8_t *ls0 = organism_strand(loaded, 0, 0, &ll0);
+	const uint8_t *ls1 = organism_strand(loaded, 1, 0, &ll1);
+	CHECK(organism_count(loaded) == 1 && organism_max_generation(loaded) == 7
+		&& organism_generation(loaded) == 0,
 		"viv14 metadata");
-	CHECK(loaded->hlen[0][0] == dl0 && memcmp(loaded->hom[0][0], stored0, dl0) == 0
-		&& loaded->hlen[1][0] == dl1 && memcmp(loaded->hom[1][0], stored1, dl1) == 0,
+	CHECK(ll0 == dl0 && memcmp(ls0, stored0, dl0) == 0
+		&& ll1 == dl1 && memcmp(ls1, stored1, dl1) == 0,
 		"viv14 preserves both homologs");
-	CHECK(memcmp(loaded->hom[0][0], loaded->hom[1][0], dl0) != 0,
+	CHECK(memcmp(ls0, ls1, dl0) != 0,
 		"viv14 keeps the divergence");
 	vivi_bytes *rd = nullptr;
 	cell_report rep;
 	CHECK(organism_read(&rd, loaded, &rep, &err), "viv14 pair repairs");
 	CHECK(rd[0].len == 300 && memcmp(rd[0].data, d0, 300) == 0, "viv14 repaired payload");
-	vivi_bytes_free_n(rd, loaded->nchr);
+	vivi_bytes_free_n(rd, organism_count(loaded));
 	organism_free(loaded);
 
 	/* VIV1 stores only homolog 0, and its parser rejects a strand with a
@@ -1513,13 +1520,13 @@ static void test_viv14n(void)
 	CHECK(organism_container_version(ser.data, ser.len) == 141, "viv14n sniff");
 	vivi_organism *loaded = nullptr;
 	CHECK(organism_deserialize(&loaded, ser.data, ser.len, &err), "viv14n deserialize");
-	CHECK(loaded->chr_opts[0].parity == 2, "viv14n option preserved");
+	CHECK(organism_chr_opts_at(loaded, 0)->parity == 2, "viv14n option preserved");
 	vivi_bytes *rd = nullptr;
 	cell_report rep;
 	CHECK(organism_read(&rd, loaded, &rep, &err), "viv14n organism read");
 	CHECK(rd[0].len == sizeof(payload) && memcmp(rd[0].data, payload, sizeof(payload)) == 0,
 		"viv14n organism payload");
-	vivi_bytes_free_n(rd, loaded->nchr);
+	vivi_bytes_free_n(rd, organism_count(loaded));
 	organism_free(loaded);
 	vivi_bytes_free(&ser);
 	organism_free(org);
@@ -1617,7 +1624,8 @@ static void test_banshee(void)
 	CHECK(organism_container_version(ser.data, ser.len) == 143, "banshee sniff");
 	vivi_organism *loaded = nullptr;
 	CHECK(organism_deserialize(&loaded, ser.data, ser.len, &err), "banshee deserialize");
-	CHECK(loaded->chr_opts[1].primer == 1234 && loaded->chr_opts[1].parity == 2,
+	CHECK(organism_chr_opts_at(loaded, 1)->primer == 1234
+		&& organism_chr_opts_at(loaded, 1)->parity == 2,
 		"banshee container options");
 	vivi_bytes *rdata = nullptr;
 	cell_report rep;
@@ -1626,7 +1634,7 @@ static void test_banshee(void)
 		&& memcmp(rdata[0].data, payload, sizeof(payload)) == 0
 		&& rdata[1].len == sizeof(p2) && memcmp(rdata[1].data, p2, sizeof(p2)) == 0,
 		"banshee organism payload");
-	vivi_bytes_free_n(rdata, loaded->nchr);
+	vivi_bytes_free_n(rdata, organism_count(loaded));
 	organism_free(loaded);
 
 	/* an earlier container infers the barcode from the strand */
@@ -1634,7 +1642,8 @@ static void test_banshee(void)
 	CHECK(organism_serialize14n(&ser14n, org, &err), "banshee as 14n");
 	vivi_organism *inf = nullptr;
 	CHECK(organism_deserialize(&inf, ser14n.data, ser14n.len, &err), "banshee 14n load");
-	CHECK(inf->chr_opts[1].primer == 1234 && inf->chr_opts[1].parity == 2,
+	CHECK(organism_chr_opts_at(inf, 1)->primer == 1234
+		&& organism_chr_opts_at(inf, 1)->parity == 2,
 		"banshee barcode inferred");
 	organism_free(inf);
 	vivi_bytes_free(&ser14n);
@@ -1651,7 +1660,10 @@ static vivi_organism *transaction_fixture(size_t nchr)
 	size_t lens[2] = { 16, 17 };
 	vivi_organism *o = nullptr;
 	CHECK(organism_new(&o, ids, opts, data, lens, nchr, 60, nullptr), "transaction fixture");
-	if (o) for (size_t i = 0; i < nchr; i++) o->hom[0][i][0] ^= 1;
+	if (o) for (size_t i = 0; i < nchr; i++) {
+		size_t l = 0;
+		organism_strand_mut(o, 0, i, &l)[0] ^= 1;
+	}
 	return o;
 }
 
@@ -1726,7 +1738,10 @@ static void test_transaction_failures(void)
 					CHECK(organism_serialize14nb(&before, o, nullptr), "transaction before snapshot");
 					uint8_t *pointers[2][2];
 					for (int h = 0; h < 2; h++)
-						for (size_t i = 0; i < n; i++) pointers[h][i] = o->hom[h][i];
+						for (size_t i = 0; i < n; i++) {
+							size_t l = 0;
+							pointers[h][i] = organism_strand_mut(o, (size_t)h, i, &l);
+						}
 					dna_free_caches();
 					long live = g_live;
 					g_alloc_calls = g_alloc_failures = 0;
@@ -1741,8 +1756,11 @@ static void test_transaction_failures(void)
 					if (!ok) {
 						CHECK(same_bytes(&before, &after), "failed transaction unchanged");
 						for (int h = 0; h < 2; h++)
-							for (size_t i = 0; i < n; i++)
-								CHECK(pointers[h][i] == o->hom[h][i], "failed transaction pointers unchanged");
+							for (size_t i = 0; i < n; i++) {
+								size_t l = 0;
+								CHECK(pointers[h][i] == organism_strand_mut(o, (size_t)h, i, &l),
+									"failed transaction pointers unchanged");
+							}
 						if (op == 0) CHECK(rep.failed && !rep.repaired && !rep.structural, "checkpoint execution failure report");
 					} else {
 						CHECK(same_bytes(&expected, &after), "transaction success bytes");

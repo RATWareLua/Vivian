@@ -339,7 +339,7 @@ static void scenario_organisms(void)
 		vivi_bytes rt = { 0 };
 		(void)organism_serialize14n(&rt, loaded, nullptr);
 		hexline("org14n_rt", rt.data, rt.len);
-		printf("org14n_parity %d\n", loaded->chr_opts[1].parity);
+		printf("org14n_parity %d\n", organism_chr_opts_at(loaded, 1)->parity);
 		vivi_bytes_free(&rt);
 		organism_free(loaded);
 	} else {
@@ -349,7 +349,7 @@ static void scenario_organisms(void)
 	/* VIV14 container carrying CEN2 strands infers the parity count */
 	vivi_organism *inf = nullptr;
 	if (organism_deserialize(&inf, s14.data, s14.len, nullptr)) {
-		printf("org14_infer_parity %d\n", inf->chr_opts[1].parity);
+		printf("org14_infer_parity %d\n", organism_chr_opts_at(inf, 1)->parity);
 		organism_free(inf);
 	} else {
 		printf("org14_infer_parity fail\n");
@@ -417,8 +417,8 @@ static void scenario_organisms(void)
 				vivi_bytes brt = { 0 };
 				(void)organism_serialize14nb(&brt, bl, nullptr);
 				hexline("org14nb_rt", brt.data, brt.len);
-				printf("org14nb_opts %d %d\n", bl->chr_opts[1].parity,
-					bl->chr_opts[1].primer);
+				printf("org14nb_opts %d %d\n", organism_chr_opts_at(bl, 1)->parity,
+					organism_chr_opts_at(bl, 1)->primer);
 				vivi_bytes_free(&brt);
 				organism_free(bl);
 			} else {
@@ -443,7 +443,7 @@ static void scenario_organisms(void)
 			hexline("org14nb_inner", iser.data, iser.len);
 			vivi_organism *il = nullptr;
 			if (organism_deserialize(&il, iser.data, iser.len, nullptr)) {
-				printf("org14nb_inner_infer %d\n", il->chr_opts[1].inner);
+				printf("org14nb_inner_infer %d\n", organism_chr_opts_at(il, 1)->inner);
 				organism_free(il);
 			} else {
 				printf("org14nb_inner_load fail\n");

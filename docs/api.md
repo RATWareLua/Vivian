@@ -292,15 +292,22 @@ typedef struct {
     int structural;  /* telomere/centromere splices */
     int anomaly;     /* extra/phantom genes seen during repair */
     int renewed;     /* set by read()/maintain() when the stem rescued the cell */
+    int failed;      /* the operation itself failed (e.g. out of memory) */
 } cell_report;
 
-typedef struct vivi_cell {
-    int chr_id, generation, max_gen;
-    int stem, dead;
-    const struct vivi_cell *stem_source;   /* borrowed, may be NULL */
-    uint8_t *hom[2];
-    size_t hlen[2];
-} vivi_cell;
+typedef struct vivi_cell vivi_cell;   /* opaque: layout is private */
+
+int  cell_chr_id(const vivi_cell *c);
+int  cell_generation(const vivi_cell *c);
+int  cell_max_generation(const vivi_cell *c);
+void cell_set_max_generation(vivi_cell *c, int max_gen);
+bool cell_is_dead(const vivi_cell *c);
+bool cell_is_stem(const vivi_cell *c);
+
+/* advanced strand access (homolog 0 or 1) */
+const uint8_t *cell_strand(const vivi_cell *c, size_t homolog, size_t *len);
+uint8_t       *cell_strand_mut(vivi_cell *c, size_t homolog, size_t *len);
+bool cell_replace_strand(vivi_cell *c, size_t homolog, uint8_t *data, size_t len);
 ```
 
 ### Low-level machinery
@@ -361,16 +368,24 @@ cell_report cell_maintain(vivi_cell **cells, size_t count, const vivi_cell *stem
 ## `organism.h` — organism layer
 
 ```c
-typedef struct vivi_organism {
-    int *chr_ids;
-    chr_opts *chr_opts;
-    size_t nchr;
-    uint8_t **hom[2];   /* per homolog: nchr strands */
-    size_t *hlen[2];
-    int generation, max_gen;
-    int stem, dead;
-    const struct vivi_organism *stem_source;  /* borrowed */
-} vivi_organism;
+typedef struct vivi_organism vivi_organism;   /* opaque: layout is private */
+
+/* stable accessors */
+size_t organism_count(const vivi_organism *o);
+int    organism_chr_id_at(const vivi_organism *o, size_t i);
+const chr_opts *organism_chr_opts_at(const vivi_organism *o, size_t i);
+int    organism_generation(const vivi_organism *o);
+int    organism_max_generation(const vivi_organism *o);
+bool   organism_is_dead(const vivi_organism *o);
+bool   organism_is_stem(const vivi_organism *o);
+bool   organism_has_stem(const vivi_organism *o);
+
+/* advanced research access (homolog 0 or 1) */
+const uint8_t *organism_strand(const vivi_organism *o, size_t homolog, size_t i, size_t *len);
+uint8_t       *organism_strand_mut(vivi_organism *o, size_t homolog, size_t i, size_t *len);
+bool organism_replace_strand(vivi_organism *o, size_t homolog, size_t i, uint8_t *data, size_t len);
+bool organism_set_strand_len(vivi_organism *o, size_t homolog, size_t i, size_t len);
+void organism_set_max_generation(vivi_organism *o, int max_gen);
 
 typedef struct {
     int chr;            /* chromosome id that was mutated */

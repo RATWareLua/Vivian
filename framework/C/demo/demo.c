@@ -118,29 +118,29 @@ int main(void)
             printf("\n   " CLR_RED "( X _ X )   STATUS: COLLAPSED / DEAD" CLR_RESET "\n");
         } else if (rep.renewed) {
             printf("\n   " CLR_MAGENTA "( * v * )!  STATUS: REGENERATED FROM STEM NICHE" CLR_RESET "\n");
-        } else if (pet->generation >= pet->max_gen) {
+        } else if (organism_generation(pet) >= organism_max_generation(pet)) {
             printf("\n   " CLR_YELLOW "( - _ - )   STATUS: SENESCENT (HAYFLICK LIMIT REACHED)" CLR_RESET "\n");
         } else {
             printf("\n   " CLR_GREEN "( ^ _ ^ )b  STATUS: HEALTHY & ACTIVE" CLR_RESET "\n");
         }
 
         // Шкала поколений (Лимит Хейфлика)
-        printf("\n  " CLR_YELLOW "Age / Generation: " CLR_RESET "[%d / %d] ", pet->generation, pet->max_gen);
+        printf("\n  " CLR_YELLOW "Age / Generation: " CLR_RESET "[%d / %d] ", organism_generation(pet), organism_max_generation(pet));
         printf("[");
         for (int i = 0; i < 30; ++i) {
-            if (i < (pet->generation * 30 / pet->max_gen)) printf(CLR_RED "|" CLR_RESET);
+            if (i < (organism_generation(pet) * 30 / organism_max_generation(pet))) printf(CLR_RED "|" CLR_RESET);
             else printf(CLR_GREEN "." CLR_RESET);
         }
-        printf("]  Stem Link: %s\n", pet->stem_source ? CLR_GREEN "ONLINE" CLR_RESET : CLR_RED "OFFLINE" CLR_RESET);
+        printf("]  Stem Link: %s\n", organism_has_stem(pet) ? CLR_GREEN "ONLINE" CLR_RESET : CLR_RED "OFFLINE" CLR_RESET);
 
         // Отображение хромосом
         printf("\n" CLR_CYAN "--- KARYOTYPE & EXPRESSED TRAITS ---------------------------------------" CLR_RESET "\n");
         if (is_alive && karyotype) {
-            for (size_t i = 0; i < pet->nchr; ++i) {
+            for (size_t i = 0; i < organism_count(pet); ++i) {
                 printf("  Chr %d: " CLR_GREEN "%.*s" CLR_RESET "\n",
-                    pet->chr_ids[i], (int)karyotype[i].len, (const char *)karyotype[i].data);
+                    organism_chr_id_at(pet, i), (int)karyotype[i].len, (const char *)karyotype[i].data);
             }
-            vivi_bytes_free_n(karyotype, pet->nchr);
+            vivi_bytes_free_n(karyotype, organism_count(pet));
         } else {
             printf(CLR_RED "  [GENOME DESTROYED - HOMOLOGOUS REPAIR FAILED]\n" CLR_RESET);
         }
@@ -177,7 +177,7 @@ int main(void)
                 vivi_bytes *dummy = nullptr;
                 cell_report r;
                 (void)organism_read(&dummy, pet, &r, &err);
-                if (dummy) vivi_bytes_free_n(dummy, pet->nchr);
+                if (dummy) vivi_bytes_free_n(dummy, organism_count(pet));
                 snprintf(last_event, sizeof(last_event),
                     "Radiation (2 hits): Repaired: %d, Structural: %d, Dead: %d",
                     r.repaired, r.structural, r.dead);
@@ -188,7 +188,7 @@ int main(void)
                 vivi_bytes *dummy = nullptr;
                 cell_report r;
                 bool ok = organism_read(&dummy, pet, &r, &err);
-                if (dummy) vivi_bytes_free_n(dummy, pet->nchr);
+                if (dummy) vivi_bytes_free_n(dummy, organism_count(pet));
                 if (ok && r.renewed) {
                     snprintf(last_event, sizeof(last_event),
                         CLR_MAGENTA "LETHAL DOSE (30 hits)! Internal repair failed, but STEM NICHE restored the organism!" CLR_RESET);
@@ -234,7 +234,7 @@ int main(void)
                     organism_free(pet);
                     pet = daughter;
                     snprintf(last_event, sizeof(last_event),
-                        "Mitosis successful! Organism divided. Generation advanced to %d.", pet->generation);
+                        "Mitosis successful! Organism divided. Generation advanced to %d.", organism_generation(pet));
                 } else {
                     snprintf(last_event, sizeof(last_event),
                         CLR_RED "Mitosis blocked: %s" CLR_RESET, err ? err : "senescent");

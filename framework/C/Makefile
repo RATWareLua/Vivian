@@ -3,7 +3,7 @@ CC      := clang
 AR      := llvm-ar
 CFLAGS  := -std=c23 -O2 -Wall -Wextra -Iinclude
 LIBSRC  := src/vivi.c src/dna.c src/genome.c src/chromosome.c src/channel.c src/pool.c src/parity.c src/rs.c src/cell.c src/organism.c src/model.c
-HDRS    := $(wildcard include/vivi/*.h)
+HDRS    := $(wildcard include/vivi/*.h) src/internal.h src/gf_tables.h
 LIBOBJ  := $(LIBSRC:.c=.o)
 
 FUZZ_BIN := $(patsubst test/fuzz/%.c,vivi_fuzz_%,$(wildcard test/fuzz/*.c))

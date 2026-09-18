@@ -13,16 +13,10 @@
 #include "vivi.h"
 #include "cell.h"
 
-typedef struct vivi_organism {
-	int *chr_ids;
-	chr_opts *chr_opts;
-	size_t nchr;
-	uint8_t **hom[2];   /* per homolog: array of nchr strand pointers */
-	size_t *hlen[2];    /* per homolog: array of strand lengths */
-	int generation, max_gen;
-	int stem, dead;
-	const struct vivi_organism *stem_source;
-} vivi_organism;
+/* Opaque: the layout lives in the implementation and is not part of the
+ * stable API. Read it through the accessors below, or via organism_read /
+ * organism_peek. */
+typedef struct vivi_organism vivi_organism;
 
 /* stable accessors: read an organism without depending on its layout */
 size_t organism_count(const vivi_organism *o);
@@ -32,6 +26,18 @@ int organism_generation(const vivi_organism *o);
 int organism_max_generation(const vivi_organism *o);
 bool organism_is_dead(const vivi_organism *o);
 bool organism_is_stem(const vivi_organism *o);
+bool organism_has_stem(const vivi_organism *o);
+
+/* advanced research access (homolog 0 or 1). organism_strand returns a
+ * borrowed pointer; organism_replace_strand takes ownership of `data` and
+ * frees the previous strand (NULL, 0 clears). organism_set_strand_len only
+ * rewrites the recorded length (no reallocation). */
+const uint8_t *organism_strand(const vivi_organism *o, size_t homolog, size_t i, size_t *len);
+uint8_t *organism_strand_mut(vivi_organism *o, size_t homolog, size_t i, size_t *len);
+[[nodiscard]] bool organism_replace_strand(vivi_organism *o, size_t homolog, size_t i,
+	uint8_t *data, size_t len);
+[[nodiscard]] bool organism_set_strand_len(vivi_organism *o, size_t homolog, size_t i, size_t len);
+void organism_set_max_generation(vivi_organism *o, int max_gen);
 
 typedef struct {
 	int chr;            /* chromosome id */

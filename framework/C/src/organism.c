@@ -1,5 +1,6 @@
 /* organism.c -- organisms, transliteration of organism.lua */
 #include "vivi/organism.h"
+#include "internal.h"
 #include <string.h>
 
 static bool organism_valid(const vivi_organism *o)
@@ -59,6 +60,43 @@ int organism_generation(const vivi_organism *o) { return o ? o->generation : 0; 
 int organism_max_generation(const vivi_organism *o) { return o ? o->max_gen : 0; }
 bool organism_is_dead(const vivi_organism *o) { return o ? o->dead != 0 : true; }
 bool organism_is_stem(const vivi_organism *o) { return o ? o->stem != 0 : false; }
+bool organism_has_stem(const vivi_organism *o) { return o ? o->stem_source != nullptr : false; }
+
+const uint8_t *organism_strand(const vivi_organism *o, size_t homolog, size_t i, size_t *len)
+{
+	if (!o || homolog > 1 || i >= o->nchr) { if (len) *len = 0; return nullptr; }
+	if (len) *len = o->hlen[homolog][i];
+	return o->hom[homolog][i];
+}
+
+uint8_t *organism_strand_mut(vivi_organism *o, size_t homolog, size_t i, size_t *len)
+{
+	if (!o || homolog > 1 || i >= o->nchr) { if (len) *len = 0; return nullptr; }
+	if (len) *len = o->hlen[homolog][i];
+	return o->hom[homolog][i];
+}
+
+bool organism_replace_strand(vivi_organism *o, size_t homolog, size_t i,
+	uint8_t *data, size_t len)
+{
+	if (!o || homolog > 1 || i >= o->nchr) return false;
+	vivi_dealloc(o->hom[homolog][i]);
+	o->hom[homolog][i] = data;
+	o->hlen[homolog][i] = len;
+	return true;
+}
+
+bool organism_set_strand_len(vivi_organism *o, size_t homolog, size_t i, size_t len)
+{
+	if (!o || homolog > 1 || i >= o->nchr) return false;
+	o->hlen[homolog][i] = len;
+	return true;
+}
+
+void organism_set_max_generation(vivi_organism *o, int max_gen)
+{
+	if (o) o->max_gen = max_gen;
+}
 
 static int organism_alloc_from_homologs(vivi_organism **out, const int *ids,
 	const chr_opts *opts, const uint8_t *const *h0, const size_t *l0,

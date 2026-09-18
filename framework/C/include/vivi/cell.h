@@ -19,20 +19,24 @@ typedef struct {
 	int failed;
 } cell_report;
 
-typedef struct vivi_cell {
-	int chr_id, generation, max_gen;
-	int stem, dead;
-	const struct vivi_cell *stem_source;
-	uint8_t *hom[2];
-	size_t hlen[2];
-} vivi_cell;
+/* Opaque: the layout lives in the implementation and is not part of the
+ * stable API. Read it through the accessors below, or via cell_read. */
+typedef struct vivi_cell vivi_cell;
 
 /* stable accessors: read a cell without depending on its layout */
 int cell_chr_id(const vivi_cell *c);
 int cell_generation(const vivi_cell *c);
 int cell_max_generation(const vivi_cell *c);
+void cell_set_max_generation(vivi_cell *c, int max_gen);
 bool cell_is_dead(const vivi_cell *c);
 bool cell_is_stem(const vivi_cell *c);
+
+/* advanced strand access (research layer): homolog 0 or 1. cell_strand
+ * returns a borrowed pointer; cell_replace_strand takes ownership of
+ * `data` and frees the previous strand (pass NULL, 0 to clear). */
+const uint8_t *cell_strand(const vivi_cell *c, size_t homolog, size_t *len);
+uint8_t *cell_strand_mut(vivi_cell *c, size_t homolog, size_t *len);
+[[nodiscard]] bool cell_replace_strand(vivi_cell *c, size_t homolog, uint8_t *data, size_t len);
 
 /* low-level machinery (also used by organism.c) */
 [[nodiscard]] bool cell_damage_strand(vivi_bytes *out, const uint8_t *strand, size_t slen, int count,
