@@ -387,7 +387,7 @@ static void test_channel(void)
 	CHECK(vivi_channel_read(&rd, src, sizeof(src), &z, &err), "channel identity");
 	CHECK(!rd.dropped && rd.bases == 32 && rd.strand.len == 8
 		&& memcmp(rd.strand.data, src, 8) == 0, "channel identity bytes");
-	vivi_bytes_free(&rd.strand);
+	vivi_read_free(&rd);
 
 	vivi_channel_opts drop = { 0, 0, 0, 1.0, 7, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
 	CHECK(vivi_channel_read(&rd, src, sizeof(src), &drop, &err), "channel drop");
@@ -408,13 +408,13 @@ static void test_channel(void)
 	CHECK(rd2.strand.len == rd.strand.len
 		&& memcmp(rd2.strand.data, rd.strand.data, rd.strand.len) == 0,
 		"channel deterministic per seed");
-	vivi_bytes_free(&rd2.strand);
-	vivi_bytes_free(&rd.strand);
+	vivi_read_free(&rd2);
+	vivi_read_free(&rd);
 
 	vivi_channel_opts ins = { 0, 1.0, 0, 0, 4, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
 	CHECK(vivi_channel_read(&rd, src, sizeof(src), &ins, &err), "channel insertion");
 	CHECK(!rd.dropped && rd.bases == 64 && rd.strand.len == 16, "insertion doubles bases");
-	vivi_bytes_free(&rd.strand);
+	vivi_read_free(&rd);
 
 	vivi_channel_opts del = { 0, 0, 1.0, 0, 4, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
 	CHECK(vivi_channel_read(&rd, src, sizeof(src), &del, &err), "channel deletion");
@@ -434,7 +434,7 @@ static void test_channel(void)
 	CHECK(dna_decode(&dec, rd.strand.data, rd.strand.len, &err), "channel identity decode");
 	CHECK(dec.len == sizeof(pl) && memcmp(dec.data, pl, sizeof(pl)) == 0,
 		"channel identity roundtrip");
-	vivi_bytes_free(&rd.strand);
+	vivi_read_free(&rd);
 	vivi_bytes_free(&enc);
 	vivi_bytes_free(&dec);
 }
@@ -455,7 +455,7 @@ static void test_realistic_channel(void)
 	static const uint8_t want[8] = { 0x3B, 0xE4, 0x09, 0x7A, 0xC6, 0x33, 0xA0, 0x4D };
 	CHECK(rd.strand.len == 8 && memcmp(rd.strand.data, want, 8) == 0,
 		"pinned stream unchanged when new rates are zero");
-	vivi_bytes_free(&rd.strand);
+	vivi_read_free(&rd);
 
 	static const uint8_t gcstrand[2] = { 0x1B, 0x1B };
 	vivi_channel_opts gco = { 0, 0, 0, 0, 11, 1.0, 0.0, 0.0, 0.0, 0, 0.0 };
@@ -468,7 +468,7 @@ static void test_realistic_channel(void)
 		if ((o == 1 || o == 2) ? (b == o) : (b != o)) gc_ok = 0;
 	}
 	CHECK(gc_ok, "p_sub_gc substitutes G/C and leaves A/T");
-	vivi_bytes_free(&rd.strand);
+	vivi_read_free(&rd);
 
 	static const uint8_t hpstrand[2] = { 0x06, 0xAC };
 	vivi_channel_opts hpo = { 0, 0, 0, 0, 13, 0.0, 1.0, 0.0, 0.0, 0, 0.0 };
@@ -482,12 +482,12 @@ static void test_realistic_channel(void)
 		if (homopolymer ? (b == o) : (b != o)) hp_ok = 0;
 	}
 	CHECK(hp_ok, "p_sub_hp substitutes only homopolymer bases");
-	vivi_bytes_free(&rd.strand);
+	vivi_read_free(&rd);
 
 	vivi_channel_opts tro = { 0, 0, 0, 0, 21, 0.0, 0.0, 1.0, 0.0, 0, 0.0 };
 	CHECK(vivi_channel_read(&rd, strand, 8, &tro, &err), "trunc read");
 	CHECK(!rd.dropped && rd.bases >= 1 && rd.bases < 32, "p_trunc shortens the read");
-	vivi_bytes_free(&rd.strand);
+	vivi_read_free(&rd);
 
 	vivi_channel_opts buo = { 0, 0, 0, 0, 31, 0.0, 0.0, 0.0, 1.0, 4, 0.0 };
 	CHECK(vivi_channel_read(&rd, strand, 8, &buo, &err), "burst read");
@@ -499,7 +499,7 @@ static void test_realistic_channel(void)
 		else run = 0;
 	}
 	CHECK(maxrun >= 4, "p_burst substitutes a run of at least 4");
-	vivi_bytes_free(&rd.strand);
+	vivi_read_free(&rd);
 
 	vivi_channel_opts badgc = { 0, 0, 0, 0, 1, 1.5, 0.0, 0.0, 0.0, 0, 0.0 };
 	CHECK(!vivi_channel_read(&rd, strand, 8, &badgc, &err)
@@ -634,7 +634,7 @@ static void test_consensus(void)
 	CHECK(c1.bases == plain.bases && c1.strand.len == plain.strand.len
 		&& memcmp(c1.strand.data, plain.strand.data, plain.strand.len) == 0,
 		"coverage 1 matches the plain channel");
-	vivi_bytes_free(&c1.strand);
+	vivi_read_free(&c1);
 
 	vivi_consensus_opts zero = { ch, 0, 0 };
 	vivi_read c0;
@@ -642,7 +642,7 @@ static void test_consensus(void)
 	CHECK(c0.strand.len == plain.strand.len
 		&& memcmp(c0.strand.data, plain.strand.data, plain.strand.len) == 0,
 		"coverage 0 matches the plain channel");
-	vivi_bytes_free(&c0.strand);
+	vivi_read_free(&c0);
 
 	vivi_channel_opts id = { 0, 0, 0, 0, 5, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
 	vivi_consensus_opts idc = { id, 9, 0 };
@@ -650,7 +650,7 @@ static void test_consensus(void)
 	CHECK(vivi_consensus_read(&ri, src, sizeof(src), &idc, &err), "consensus identity");
 	CHECK(ri.bases == n && ri.strand.len == sizeof(src)
 		&& memcmp(ri.strand.data, src, sizeof(src)) == 0, "consensus identity is lossless");
-	vivi_bytes_free(&ri.strand);
+	vivi_read_free(&ri);
 
 	vivi_consensus_opts many = { ch, 21, 0 };
 	vivi_read rc, rc2;
@@ -668,8 +668,8 @@ static void test_consensus(void)
 	CHECK(plain_bad > 0, "a single read carries substitutions");
 	CHECK(cons_bad < plain_bad, "consensus corrects substitutions");
 	CHECK(cons_bad == 0, "consensus recovers the pristine strand");
-	vivi_bytes_free(&rc.strand);
-	vivi_bytes_free(&rc2.strand);
+	vivi_read_free(&rc);
+	vivi_read_free(&rc2);
 
 	vivi_channel_opts drop = { 0, 0, 0, 1.0, 3, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
 	vivi_consensus_opts dropc = { drop, 5, 0 };
@@ -691,7 +691,7 @@ static void test_consensus(void)
 	CHECK(!vivi_consensus_read(nullptr, src, sizeof(src), &guard, &err), "consensus null out");
 	CHECK(!vivi_consensus_read(&rins, nullptr, sizeof(src), &guard, &err), "consensus null strand");
 
-	vivi_bytes_free(&plain.strand);
+	vivi_read_free(&plain);
 }
 
 /* ---------- soft information and correlated indels ---------- */
@@ -735,6 +735,24 @@ static void test_soft(void)
 	CHECK(sbad < hbad, "soft consensus beats hard majority");
 	vivi_read_free(&h);
 	vivi_read_free(&s);
+
+	/* the pool soft path frees its quality too (allocation-balanced) */
+	{
+		vivi_bytes chr = { 0 };
+		chr_opts co = { 16, 0, 3, 4, 0, 0, 0, 0 };
+		CHECK(chr_encode(&chr, 0, src, sizeof(src), &co, &err), "soft pool chromosome");
+		vivi_pool pool = { 0 };
+		CHECK(vivi_pool_add_chromosome(&pool, chr.data, chr.len, &err), "soft pool add");
+		if (pool.count) {
+			vivi_amp_opts ao = { 0.0, 0.0, 9,
+				{ 0.05, 0, 0, 0, 3, 0.0, 0.0, 0.0, 0.0, 0, 0.0 }, 0.0, 3, 1 };
+			vivi_amp_result ar;
+			CHECK(vivi_pool_amplify(&ar, &pool, pool.ids[0], &ao, &err), "soft pool amplify");
+			vivi_read_free(&ar.read);
+		}
+		vivi_pool_free(&pool);
+		vivi_bytes_free(&chr);
+	}
 }
 
 static void test_burst_indel(void)
@@ -1058,8 +1076,8 @@ static void test_pool(void)
 		"pool amplicon reads");
 	CHECK(g.data_len == 64 && memcmp(g.data, payload + 3 * 64, 64) == 0, "pool on-target data");
 	vivi_dealloc(g.data);
-	vivi_bytes_free(&a1.read.strand);
-	vivi_bytes_free(&a2.read.strand);
+	vivi_read_free(&a1.read);
+	vivi_read_free(&a2.read);
 
 	vivi_amp_opts fail = { 1.0, 0.0, 7, { 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0, 0.0 }, 0.0, 1u, 0 };
 	CHECK(vivi_pool_amplify(&a1, &pool, 3, &fail, &err), "pool primer failure");
@@ -1073,7 +1091,7 @@ static void test_pool(void)
 	vivi_amp_opts xtalk = { 0.0, 1.0, 7, { 0.0, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0.0, 0.0, 0, 0.0 }, 0.0, 1u, 0 };
 	CHECK(vivi_pool_amplify(&a1, &pool, 3, &xtalk, &err), "pool cross-talk");
 	CHECK(a1.id >= 0 && a1.id != 3, "pool off-target id");
-	vivi_bytes_free(&a1.read.strand);
+	vivi_read_free(&a1.read);
 
 	CHECK(!vivi_pool_amplify(&a1, &pool, 999, &ao, &err), "pool unknown target");
 

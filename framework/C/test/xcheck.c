@@ -471,7 +471,7 @@ static void chan_case(const char *label, const uint8_t *data, size_t n,
 	}
 	if (hexout) hexline(label, rd.strand.data, rd.strand.len);
 	if (numout) printf("%s_n %zu %d\n", label, rd.bases, rd.dropped);
-	vivi_bytes_free(&rd.strand);
+	vivi_read_free(&rd);
 }
 
 static void consensus_case(const char *label, const uint8_t *data, size_t n,
@@ -485,7 +485,7 @@ static void consensus_case(const char *label, const uint8_t *data, size_t n,
 	}
 	if (hexout) hexline(label, rd.strand.data, rd.strand.len);
 	if (numout) printf("%s_n %zu %d\n", label, rd.bases, rd.dropped);
-	vivi_bytes_free(&rd.strand);
+	vivi_read_free(&rd);
 }
 
 static void scenario_research(void)
@@ -540,9 +540,9 @@ static void scenario_research(void)
 		&& c1.strand.len == sizeof(chdata)
 		&& memcmp(c1.strand.data, chdata, sizeof(chdata)) == 0;
 	printf("ch_cons_eq %d %d %d\n", eq0, eq1, eq2);
-	vivi_bytes_free(&p0.strand);
-	vivi_bytes_free(&c0.strand);
-	vivi_bytes_free(&c1.strand);
+	vivi_read_free(&p0);
+	vivi_read_free(&c0);
+	vivi_read_free(&c1);
 
 	consensus_case("ch_cons5", chdata, sizeof(chdata),
 		&(vivi_consensus_opts){ .ch = { .seed = 7, .p_sub = 0.05 }, .coverage = 5 }, 1, 0);
@@ -551,7 +551,7 @@ static void scenario_research(void)
 	if (vivi_consensus_read(&ir, chdata, sizeof(chdata),
 			&(vivi_consensus_opts){ .ch = { .seed = 7, .p_ins = 1.0 }, .coverage = 5 }, &err)) {
 		printf("ch_cons_indel ok\n");
-		vivi_bytes_free(&ir.strand);
+		vivi_read_free(&ir);
 	} else {
 		printf("ch_cons_indel %s\n", err);
 	}
@@ -579,7 +579,7 @@ static void scenario_research(void)
 	} else {
 		hexline("ch_pool", ar.read.strand.data, ar.read.strand.len);
 		printf("ch_pool_n %d %d\n", ar.id, ar.read.dropped);
-		vivi_bytes_free(&ar.read.strand);
+		vivi_read_free(&ar.read);
 	}
 
 	vivi_read srd;

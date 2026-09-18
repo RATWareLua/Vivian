@@ -29,7 +29,7 @@ static void amplify_one(const uint8_t *data, size_t size, const vivi_amp_opts *a
 		int id = pool.ids[0];
 		vivi_amp_result ar;
 		if (vivi_pool_amplify(&ar, &pool, id, ao, nullptr))
-			vivi_bytes_free(&ar.read.strand);
+			vivi_read_free(&ar.read);
 	}
 	vivi_pool_free(&pool);
 }

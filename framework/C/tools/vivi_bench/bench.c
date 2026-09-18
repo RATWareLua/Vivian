@@ -108,12 +108,12 @@ static int read_gene(genome_gene *g, const vivi_bytes *mol, size_t id,
 		if (!vivi_channel_read(&rd, mol->data, mol->len, &ch, err)) return READ_ERR;
 	}
 	if (rd.dropped) {
-		vivi_bytes_free(&rd.strand);
+		vivi_read_free(&rd);
 		return READ_DROPPED;
 	}
 	int ok = genome_gene_read(g, rd.strand.data, rd.strand.len, (int)id, err)
 		? READ_OK : READ_NONE;
-	vivi_bytes_free(&rd.strand);
+	vivi_read_free(&rd);
 	return ok;
 }
 
