@@ -290,7 +290,13 @@ static void org_karyotype_clear(vivi_bytes *arr, size_t n)
 static int organism_read_checked(vivi_bytes *out, vivi_organism *o, cell_report *rep,
 	int *broken_chr, const char **err)
 {
-	if (!organism_checkpoint_checked(o, rep, err)) return 0;
+	if (!organism_checkpoint_checked(o, rep, err)) {
+		if (organism_out_of_memory(*err)) { rep->failed = 1; return 0; }
+		/* structural damage is a model event, not an execution failure:
+		 * fall through so the caller can still try the raw homologs and,
+		 * failing those, renew from the stem niche */
+		*rep = (cell_report){ 0 };
+	}
 	int all_ok = 1;
 	for (size_t i = 0; i < o->nchr; i++) {
 		vivi_bytes_free(&out[i]); /* safe on zeroed entries; needed on renew retry */
@@ -300,8 +306,8 @@ static int organism_read_checked(vivi_bytes *out, vivi_organism *o, cell_report 
 			chr_record rec;
 			*err = nullptr;
 			if (!chr_parse(&rec, o->hom[h][i], o->hlen[h][i], -1, err)) {
-				rep->failed = 1;
-				return 0;
+				if (organism_out_of_memory(*err)) { rep->failed = 1; return 0; }
+				continue;
 			}
 			if (rec.cen_ok && chr_read(&out[i], &rec, err)) good = 1;
 			chr_record_free(&rec);

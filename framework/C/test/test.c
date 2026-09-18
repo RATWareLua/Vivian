@@ -707,6 +707,22 @@ static void test_organisms(void)
 	CHECK(rep.renewed, "renewal reported");
 	vivi_bytes_free_n(rd, 2);
 
+	/* parse-level damage (a strand too short to parse) must still renew */
+	{
+		vivi_organism *org3 = nullptr;
+		(void)organism_new(&org3, ids, opts, datas, lens, 2, 60, &ERR);
+		organism_attach_stem(org3, niche);
+		for (int h = 0; h < 2; h++) org3->hlen[h][1] = 1;
+		vivi_bytes *rr = nullptr;
+		int ok = organism_read(&rr, org3, &rep, &ERR);
+		CHECK(ok, "read renews after parse-level damage");
+		CHECK(ok && rep.renewed, "parse-level damage reports renewal");
+		CHECK(ok && rr[1].len == 200 && memcmp(rr[1].data, d1, 200) == 0,
+			"renewed data after parse-level damage");
+		if (rr) vivi_bytes_free_n(rr, org3->nchr);
+		organism_free(org3);
+	}
+
 	/* renewal from a stem with a different chromosome count must resize */
 	{
 		int one[1] = { 0 };

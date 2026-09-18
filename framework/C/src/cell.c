@@ -363,13 +363,19 @@ cell_report cell_checkpoint(vivi_cell *c)
 /* strict read: checkpoint + both homologs; no stem fallback */
 static int cell_read_checked(vivi_bytes *out, vivi_cell *c, cell_report *rep, const char **err)
 {
-	if (!cell_checkpoint_checked(c, rep, err)) return 0;
+	if (!cell_checkpoint_checked(c, rep, err)) {
+		if (cell_out_of_memory(*err)) { rep->failed = 1; return 0; }
+		/* structural damage is a model event, not an execution failure:
+		 * fall through so the caller can still try the raw homologs and,
+		 * failing those, renew from the stem niche */
+		*rep = (cell_report){ 0 };
+	}
 	for (int h = 0; h < 2; h++) {
 		chr_record rec;
 		*err = nullptr;
 		if (!chr_parse(&rec, c->hom[h], c->hlen[h], -1, err)) {
-			rep->failed = 1;
-			return 0;
+			if (cell_out_of_memory(*err)) { rep->failed = 1; return 0; }
+			continue;
 		}
 		bool ok = rec.cen_ok && chr_read(out, &rec, err);
 		chr_record_free(&rec);
