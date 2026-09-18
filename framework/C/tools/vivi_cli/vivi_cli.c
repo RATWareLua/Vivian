@@ -8,6 +8,7 @@ typedef struct {
 	int gene_raw, parity, primer, codon, h, units, max_gen, inner;
 	int damage;
 	uint32_t seed;
+	int json;
 } cli_opts;
 
 static const char *prog = "vivi_cli";
@@ -32,7 +33,8 @@ static void usage(void)
 		"  --units U      telomere repeat units (>= 1, default 4)\n"
 		"  --max-gen G    Hayflick limit (default 60)\n"
 		"  --damage N     decode: flip N bases before reading\n"
-		"  --seed S       damage seed (default 1)\n");
+		"  --seed S       damage seed (default 1)\n"
+		"  --json         emit machine-readable JSON (inspect/verify/decode/repair)\n");
 }
 
 static int parse_int(const char *s, long lo, long hi, long *out)
@@ -126,6 +128,12 @@ static void print_report(const cell_report *rep)
 		rep->renewed, rep->failed);
 }
 
+static const char *container_name(int rev)
+{
+	return rev == 143 ? "VIV14NB4NSH33" : rev == 141 ? "VIV14N" :
+		rev == 14 ? "VIV14" : rev == 1 ? "VIV1" : "unknown";
+}
+
 static size_t max_data_genes(const chr_record *a, const chr_record *b)
 {
 	size_t ga = a->gene_count > (size_t)a->parity ? a->gene_count - (size_t)a->parity : 0;
@@ -157,6 +165,8 @@ static int do_encode(const uint8_t *in, size_t in_len, const char *out_path,
 	}
 	int ok = write_file(out_path, ser.data, ser.len, &err);
 	if (!ok) fprintf(stderr, "%s: %s\n", prog, err ? err : "?");
+	else if (co->json) fprintf(stderr, "encoded %zu bytes -> %zu bytes across %zu chromosome(s)\n",
+		in_len, ser.len, o->nchr);
 	else printf("encoded %zu bytes -> %zu bytes across %zu chromosome(s)\n",
 		in_len, ser.len, o->nchr);
 	vivi_bytes_free(&ser);
@@ -178,7 +188,10 @@ static int do_decode(const uint8_t *in, size_t in_len, const char *out_path,
 		organism_free(o);
 		return 1;
 	}
-	if (co->damage > 0) printf("inflicted %d base change(s), seed %u\n", co->damage, co->seed);
+	if (co->damage > 0) {
+		if (co->json) fprintf(stderr, "inflicted %d base change(s), seed %u\n", co->damage, co->seed);
+		else printf("inflicted %d base change(s), seed %u\n", co->damage, co->seed);
+	}
 	vivi_bytes *data = nullptr;
 	cell_report rep;
 	if (!organism_read(&data, o, &rep, &err)) {
@@ -186,7 +199,7 @@ static int do_decode(const uint8_t *in, size_t in_len, const char *out_path,
 		organism_free(o);
 		return 1;
 	}
-	print_report(&rep);
+	if (!co->json) print_report(&rep);
 	size_t total = 0;
 	for (size_t i = 0; i < o->nchr; i++) total += data[i].len;
 	uint8_t *flat = malloc(total ? total : 1);
@@ -203,14 +216,21 @@ static int do_decode(const uint8_t *in, size_t in_len, const char *out_path,
 	}
 	int ok = write_file(out_path, flat, total, &err);
 	if (!ok) fprintf(stderr, "%s: %s\n", prog, err ? err : "?");
-	else printf("decoded %zu bytes from %zu chromosome(s)\n", total, o->nchr);
+	if (co->json)
+		printf("{\"command\":\"decode\",\"bytes\":%zu,\"chromosomes\":%zu,"
+			"\"repaired\":%d,\"structural\":%d,\"dead\":%d,\"anomaly\":%d,"
+			"\"renewed\":%d,\"failed\":%d}\n",
+			total, o->nchr, rep.repaired, rep.structural, rep.dead,
+			rep.anomaly, rep.renewed, rep.failed);
+	else if (ok)
+		printf("decoded %zu bytes from %zu chromosome(s)\n", total, o->nchr);
 	free(flat);
 	vivi_bytes_free_n(data, o->nchr);
 	organism_free(o);
 	return ok ? 0 : 1;
 }
 
-static int do_repair(const uint8_t *in, size_t in_len, const char *out_path)
+static int do_repair(const uint8_t *in, size_t in_len, const char *out_path, int json)
 {
 	const char *err = nullptr;
 	vivi_organism *o = nullptr;
@@ -224,7 +244,7 @@ static int do_repair(const uint8_t *in, size_t in_len, const char *out_path)
 		organism_free(o);
 		return 1;
 	}
-	print_report(&rep);
+	if (!json) print_report(&rep);
 	vivi_bytes ser = { 0 };
 	if (!organism_serialize14nb(&ser, o, &err)) {
 		fprintf(stderr, "%s: serialize: %s\n", prog, err ? err : "?");
@@ -233,13 +253,20 @@ static int do_repair(const uint8_t *in, size_t in_len, const char *out_path)
 	}
 	int ok = write_file(out_path, ser.data, ser.len, &err);
 	if (!ok) fprintf(stderr, "%s: %s\n", prog, err ? err : "?");
-	else printf("wrote repaired container (%zu bytes)\n", ser.len);
+	if (json)
+		printf("{\"command\":\"repair\",\"bytes\":%zu,\"repaired\":%d,"
+			"\"structural\":%d,\"dead\":%d,\"anomaly\":%d,\"renewed\":%d,"
+			"\"failed\":%d}\n",
+			ser.len, rep.repaired, rep.structural, rep.dead, rep.anomaly,
+			rep.renewed, rep.failed);
+	else if (ok)
+		printf("wrote repaired container (%zu bytes)\n", ser.len);
 	vivi_bytes_free(&ser);
 	organism_free(o);
 	return ok ? 0 : 1;
 }
 
-static int do_inspect(const uint8_t *in, size_t in_len)
+static int do_inspect(const uint8_t *in, size_t in_len, int json)
 {
 	const char *err = nullptr;
 	vivi_organism *o = nullptr;
@@ -248,9 +275,32 @@ static int do_inspect(const uint8_t *in, size_t in_len)
 		return 1;
 	}
 	int rev = organism_container_version(in, in_len);
-	printf("container: %s (revision %d)\n",
-		rev == 143 ? "VIV14NB4NSH33" : rev == 141 ? "VIV14N" :
-		rev == 14 ? "VIV14" : rev == 1 ? "VIV1" : "unknown", rev);
+	if (json) {
+		printf("{\"command\":\"inspect\",\"container\":\"%s\",\"revision\":%d,"
+			"\"chromosomes\":%zu,\"generation\":%d,\"max_gen\":%d,\"dead\":%d,"
+			"\"chr\":[",
+			container_name(rev), rev, o->nchr, o->generation, o->max_gen, o->dead);
+		for (size_t i = 0; i < o->nchr; i++) {
+			chr_record rec;
+			const char *e = nullptr;
+			if (i) printf(",");
+			if (chr_parse(&rec, o->hom[0][i], o->hlen[0][i], -1, &e)) {
+				int gene_raw = o->chr_opts[i].gene_raw ? o->chr_opts[i].gene_raw : 1024;
+				printf("{\"id\":%d,\"genes\":%zu,\"parity\":%d,\"inner\":%d,"
+					"\"rawlen\":%zu,\"cen\":%d,\"tel\":%d,\"primer\":%d,"
+					"\"gene_raw\":%d}",
+					o->chr_ids[i], rec.gene_count, rec.parity, rec.inner,
+					rec.rawlen, rec.cen_ok, rec.telomere_ok, rec.primer, gene_raw);
+				chr_record_free(&rec);
+			} else {
+				printf("{\"id\":%d,\"error\":\"%s\"}", o->chr_ids[i], e ? e : "unreadable");
+			}
+		}
+		printf("]}\n");
+		organism_free(o);
+		return 0;
+	}
+	printf("container: %s (revision %d)\n", container_name(rev), rev);
 	printf("chromosomes: %zu   generation: %d   max_gen: %d   dead: %d\n",
 		o->nchr, o->generation, o->max_gen, o->dead);
 	for (size_t i = 0; i < o->nchr; i++) {
@@ -273,7 +323,7 @@ static int do_inspect(const uint8_t *in, size_t in_len)
 	return 0;
 }
 
-static int do_verify(const uint8_t *in, size_t in_len)
+static int do_verify(const uint8_t *in, size_t in_len, int json)
 {
 	const char *err = nullptr;
 	vivi_organism *o = nullptr;
@@ -282,13 +332,20 @@ static int do_verify(const uint8_t *in, size_t in_len)
 		return 2;
 	}
 	int bad = 0;
-	for (size_t i = 0; i < o->nchr; i++) {
+	size_t n = o->nchr;
+	int vids[256], vstat[256], vcen[256];
+	size_t vclean[256], vrecov[256], vloci[256];
+	for (size_t i = 0; i < n; i++) {
+		vids[i] = o->chr_ids[i];
+		vstat[i] = 0;
+		vcen[i] = 0;
+		vclean[i] = vrecov[i] = vloci[i] = 0;
 		chr_record a, b;
 		const char *ea = nullptr, *eb = nullptr;
 		int pa = chr_parse(&a, o->hom[0][i], o->hlen[0][i], -1, &ea);
 		int pb = chr_parse(&b, o->hom[1][i], o->hlen[1][i], -1, &eb);
 		if (!pa && !pb) {
-			printf("  chr %d: BROKEN (both homologs unreadable)\n", o->chr_ids[i]);
+			vstat[i] = 3;
 			bad = 1;
 			continue;
 		}
@@ -303,28 +360,55 @@ static int do_verify(const uint8_t *in, size_t in_len)
 			if (ia || ib) recoverable++;
 		}
 		int cen = (pa && a.cen_ok) || (pb && b.cen_ok);
+		vloci[i] = total;
+		vclean[i] = clean;
+		vrecov[i] = recoverable;
+		vcen[i] = cen;
 		if (recoverable == total && cen && clean == total) {
-			printf("  chr %d: intact (%zu loci, centromere ok)\n", o->chr_ids[i], total);
+			vstat[i] = 0;
 		} else if (recoverable == total && cen) {
-			printf("  chr %d: damaged but recoverable (clean %zu/%zu, centromere ok)\n",
-				o->chr_ids[i], clean, total);
+			vstat[i] = 1;
 			bad = 1;
 		} else {
-			printf("  chr %d: BROKEN (recoverable %zu/%zu, centromere %s)\n",
-				o->chr_ids[i], recoverable, total, cen ? "ok" : "BROKEN");
+			vstat[i] = 2;
 			bad = 1;
 		}
 		if (pa) chr_record_free(&a);
 		if (pb) chr_record_free(&b);
 	}
+	if (json) {
+		printf("{\"command\":\"verify\",\"ok\":%s,\"chr\":[", bad ? "false" : "true");
+		for (size_t i = 0; i < n; i++) {
+			if (i) printf(",");
+			printf("{\"id\":%d,\"status\":\"%s\",\"clean\":%zu,\"recoverable\":%zu,"
+				"\"loci\":%zu,\"cen\":%s}",
+				vids[i],
+				vstat[i] == 0 ? "intact" : vstat[i] == 1 ? "recoverable" : "broken",
+				vclean[i], vrecov[i], vloci[i], vcen[i] ? "true" : "false");
+		}
+		printf("]}\n");
+	} else {
+		for (size_t i = 0; i < n; i++) {
+			if (vstat[i] == 3)
+				printf("  chr %d: BROKEN (both homologs unreadable)\n", vids[i]);
+			else if (vstat[i] == 0)
+				printf("  chr %d: intact (%zu loci, centromere ok)\n", vids[i], vloci[i]);
+			else if (vstat[i] == 1)
+				printf("  chr %d: damaged but recoverable (clean %zu/%zu, centromere ok)\n",
+					vids[i], vclean[i], vloci[i]);
+			else
+				printf("  chr %d: BROKEN (recoverable %zu/%zu, centromere %s)\n",
+					vids[i], vrecov[i], vloci[i], vcen[i] ? "ok" : "BROKEN");
+		}
+		printf(bad ? "verify: DAMAGE DETECTED\n" : "verify: OK\n");
+	}
 	organism_free(o);
-	printf(bad ? "verify: DAMAGE DETECTED\n" : "verify: OK\n");
 	return bad ? 1 : 0;
 }
 
 int main(int argc, char **argv)
 {
-	cli_opts co = { 1024, 0, 0, 0, 3, 4, 60, 0, 0, 1 };
+	cli_opts co = { 1024, 0, 0, 0, 3, 4, 60, 0, 0, 1, 0 };
 	if (argc < 3) { usage(); return 2; }
 	const char *cmd = argv[1];
 	const char *in_path = argv[2];
@@ -339,6 +423,7 @@ int main(int argc, char **argv)
 		const char *a = argv[i];
 		long v;
 		if (strcmp(a, "--codon") == 0) { co.codon = 1; continue; }
+		if (strcmp(a, "--json") == 0) { co.json = 1; continue; }
 		if (i + 1 >= argc) { fprintf(stderr, "%s: missing value for %s\n", prog, a); return 2; }
 		const char *val = argv[++i];
 		if (strcmp(a, "--gene-raw") == 0) {
@@ -382,9 +467,9 @@ int main(int argc, char **argv)
 	int rc;
 	if (strcmp(cmd, "encode") == 0) rc = do_encode(in, in_len, out_path, &co);
 	else if (strcmp(cmd, "decode") == 0) rc = do_decode(in, in_len, out_path, &co);
-	else if (strcmp(cmd, "repair") == 0) rc = do_repair(in, in_len, out_path);
-	else if (strcmp(cmd, "inspect") == 0) rc = do_inspect(in, in_len);
-	else if (strcmp(cmd, "verify") == 0) rc = do_verify(in, in_len);
+	else if (strcmp(cmd, "repair") == 0) rc = do_repair(in, in_len, out_path, co.json);
+	else if (strcmp(cmd, "inspect") == 0) rc = do_inspect(in, in_len, co.json);
+	else if (strcmp(cmd, "verify") == 0) rc = do_verify(in, in_len, co.json);
 	else { usage(); rc = 2; }
 	free(in);
 	return rc;

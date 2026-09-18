@@ -18,6 +18,12 @@ static void seed_once(void)
 	atexit(seed_cleanup);
 }
 
+static double frac(const uint8_t *data, size_t size, size_t idx, double scale)
+{
+	if (idx >= size) return 0.0;
+	return ((double)data[idx] / 255.0) * scale;
+}
+
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
 	seed_once();
@@ -34,9 +40,15 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	comp = (vivi_bytes){ 0 };
 	if (dna_reverse_complement(&comp, data, size, nullptr)) vivi_bytes_free(&comp);
 	vivi_channel_opts ch = { 0.01, 0.001, 0.001, 0.01, (uint32_t)size + 1u,
-		0.0, 0.0, 0.0, 0.0, 0u };
+		frac(data, size, 0, 0.05), frac(data, size, 1, 0.05),
+		frac(data, size, 2, 0.02), frac(data, size, 3, 0.02),
+		(uint32_t)(size > 4 ? data[4] % 8u : 0u) };
 	vivi_read rd;
 	if (vivi_channel_read(&rd, data, size, &ch, nullptr))
 		vivi_bytes_free(&rd.strand);
+	vivi_consensus_opts cc = { ch, 1u + (uint32_t)(size % 32) };
+	vivi_read cr;
+	if (vivi_consensus_read(&cr, data, size, &cc, nullptr))
+		vivi_bytes_free(&cr.strand);
 	return 0;
 }

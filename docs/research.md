@@ -278,7 +278,8 @@ rather than asserted.
 ## Fuzzing
 
 `test/fuzz/` holds one libFuzzer harness per parser: `dna.c` (strand, ASCII
-view and channel), `gene.c`, `chr.c`, `viv1.c` (container), `pool.c` and
+view, channel and consensus), `gene.c`, `rs.c` (the inner codec), `inner.c`
+(inner-coded genes/chromosomes), `chr.c`, `viv1.c` (container), `pool.c` and
 `parity.c`. Each harness pushes a cached valid sample through the parser
 first, then the fuzz input, so the valid path runs on every iteration.
 
