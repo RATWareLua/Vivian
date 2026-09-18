@@ -40,7 +40,7 @@ density: density.exe
 	./density.exe
 
 sim.exe: test/sim.c $(LIBSRC) $(HDRS)
-	$(CC) $(CFLAGS) -o $@ test/sim.c $(LIBSRC)
+	$(CC) $(CFLAGS) -o $@ test/sim.c $(LIBSRC) -lm
 
 sim: sim.exe
 	./sim.exe --size 256 --trials 1000 --p-sub 0.0005 --header
