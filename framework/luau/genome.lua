@@ -246,7 +246,8 @@ local function gene_encode(data, opts)
 			end
 			local cw = rs.encode(data, rawlen, inner)
 			if not cw then return nil, "inner rs encode failed" end
-			payload = dna.encode(cw, { h = h })
+			local ih = h < 6 and 6 or h
+			payload = dna.encode(cw, { h = ih })
 			if not payload then return nil, "dense payload encode failed" end
 			packedlen = #payload
 			typ = bor(band(usertype, 0xFC), 2)

@@ -274,7 +274,11 @@ bool genome_gene_encode_inner(vivi_bytes *out, int id, int usertype, int codon_m
 	vivi_bytes cw = { 0 };
 	if (!rs_encode(&cw, data, len, (size_t)inner_m, err)) return false;
 	vivi_bytes payload = { 0 };
-	dna_opts dopts = { h, 0.05 };
+	/* a low homopolymer limit makes the constraint decoder desynchronize on
+	 * a single base error, which the byte-level RS code cannot repair; the
+	 * inner code therefore never uses h below 6 */
+	int eh = h < 6 ? 6 : h;
+	dna_opts dopts = { eh, 0.05 };
 	if (!dna_encode(&payload, cw.data, cw.len, &dopts, err)) {
 		vivi_bytes_free(&cw);
 		return false;

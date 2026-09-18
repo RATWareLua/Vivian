@@ -774,6 +774,59 @@ static void test_burst_indel(void)
 	CHECK(!vivi_channel_read(&rd, src, sizeof(src), &bad, &err), "burst-del rejects bad rate");
 }
 
+/* ---------- user calibration primitives ---------- */
+static void test_calibration(void)
+{
+	const char *err;
+	uint8_t src[32];
+	rands(src, sizeof(src));
+	size_t n = sizeof(src) * 4;
+	vivi_channel_opts ch = { 0.3, 0, 0, 0, 7, 0.0, 0.0, 0.0, 0.0, 0, 0.0 };
+
+	vivi_consensus_opts co = { ch, 3, 1 };
+	vivi_read ref;
+	CHECK(vivi_consensus_read(&ref, src, sizeof(src), &co, &err), "calibration reference");
+
+	vivi_read r0, r1, r2;
+	vivi_channel_opts c0 = ch;
+	vivi_channel_opts c1 = ch;
+	vivi_channel_opts c2 = ch;
+	c1.seed = ch.seed + 1;
+	c2.seed = ch.seed + 2;
+	CHECK(vivi_channel_read_soft(&r0, src, sizeof(src), &c0, &err), "calibration read 0");
+	CHECK(vivi_channel_read_soft(&r1, src, sizeof(src), &c1, &err), "calibration read 1");
+	CHECK(vivi_channel_read_soft(&r2, src, sizeof(src), &c2, &err), "calibration read 2");
+	const vivi_read *reads[3] = { &r0, &r1, &r2 };
+	vivi_read voted;
+	CHECK(vivi_consensus_vote(&voted, reads, 3, 1, &err), "calibration vote");
+	CHECK(voted.bases == ref.bases && ref.bases == n
+		&& memcmp(voted.strand.data, ref.strand.data, (n + 3) / 4) == 0,
+		"user vote matches the core soft consensus");
+	vivi_read_free(&ref);
+	vivi_read_free(&voted);
+	vivi_read_free(&r0);
+	vivi_read_free(&r1);
+	vivi_read_free(&r2);
+
+	vivi_read m;
+	CHECK(vivi_read_from_bytes(&m, src, sizeof(src), n, &err), "calibration from bytes");
+	int digits_ok = 1;
+	for (size_t i = 0; i < n; i++)
+		if (vivi_read_base(&m, i) != ((src[i / 4] >> (2 * (3 - i % 4))) & 3)) digits_ok = 0;
+	CHECK(digits_ok, "read_base matches the packed digits");
+	CHECK(vivi_read_base(&m, n) == 0, "read_base out of range is zero");
+	CHECK(vivi_read_alloc_quality(&m, 0, &err), "calibration alloc quality");
+	CHECK(vivi_read_set_quality(&m, 0, 123) && m.qual[0] == 123, "custom quality stored");
+	CHECK(!vivi_read_set_quality(&m, n, 1), "quality out of range rejected");
+	vivi_read_free(&m);
+
+	const vivi_read *none[2] = { nullptr, nullptr };
+	vivi_read dropped;
+	CHECK(vivi_consensus_vote(&dropped, none, 2, 0, &err), "vote with no reads");
+	CHECK(dropped.dropped, "vote with no reads is dropped");
+	vivi_read_free(&dropped);
+}
+
 /* ---------- inner RS code ---------- */
 static void test_inner(void)
 {
@@ -1868,6 +1921,7 @@ int main(void)
 	test_consensus();
 	test_context();
 	test_soft();
+	test_calibration();
 	test_burst_indel();
 	test_inner();
 	test_errors();

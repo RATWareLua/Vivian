@@ -148,6 +148,98 @@ void vivi_read_free(vivi_read *out)
 	out->dropped = 0;
 }
 
+bool vivi_read_from_bytes(vivi_read *out, const uint8_t *strand, size_t slen,
+	size_t bases, const char **err)
+{
+	if (!err) err = &channel_err_sink;
+	if (out) *out = (vivi_read){ 0 };
+	if (!out || (!strand && slen)) { *err = "expected buffers"; return false; }
+	if (slen < (bases + 3) / 4) { *err = "strand too short for base count"; return false; }
+	if (slen) {
+		out->strand.data = vivi_alloc(slen);
+		if (!out->strand.data) { *err = "out of memory"; return false; }
+		memcpy(out->strand.data, strand, slen);
+	}
+	out->strand.len = slen;
+	out->bases = bases;
+	return true;
+}
+
+uint8_t vivi_read_base(const vivi_read *r, size_t i)
+{
+	if (!r || !r->strand.data || i >= r->bases) return 0;
+	return (uint8_t)((r->strand.data[i / 4] >> (2 * (3 - i % 4))) & 3u);
+}
+
+bool vivi_read_alloc_quality(vivi_read *r, uint8_t fill, const char **err)
+{
+	if (!err) err = &channel_err_sink;
+	if (!r) { *err = "expected read"; return false; }
+	if (!r->qual) {
+		r->qual = vivi_alloc(r->bases ? r->bases : 1);
+		if (!r->qual) { *err = "out of memory"; return false; }
+	}
+	if (r->bases) memset(r->qual, fill, r->bases);
+	return true;
+}
+
+bool vivi_read_set_quality(vivi_read *r, size_t i, uint8_t qual)
+{
+	if (!r || !r->qual || i >= r->bases) return false;
+	r->qual[i] = qual;
+	return true;
+}
+
+bool vivi_consensus_vote(vivi_read *out, const vivi_read *const *reads, size_t count,
+	int soft, const char **err)
+{
+	if (!err) err = &channel_err_sink;
+	if (!out) { *err = "expected output"; return false; }
+	memset(out, 0, sizeof(*out));
+	if (!reads && count) { *err = "expected reads"; return false; }
+	size_t n = 0;
+	int have = 0;
+	for (size_t r = 0; r < count; r++) {
+		if (!reads[r] || reads[r]->dropped) continue;
+		if (!have) { n = reads[r]->bases; have = 1; }
+		else if (reads[r]->bases != n) {
+			*err = "consensus requires equal-length reads (no indels)";
+			return false;
+		}
+	}
+	if (!have) { out->dropped = 1; return true; }
+	uint32_t *counts = vivi_zalloc(n ? n : 1, 4 * sizeof(uint32_t));
+	if (!counts) { *err = "out of memory"; return false; }
+	for (size_t r = 0; r < count; r++) {
+		const vivi_read *rd = reads[r];
+		if (!rd || rd->dropped) continue;
+		if (rd->bases != n || (n && !rd->strand.data)) {
+			vivi_dealloc(counts);
+			*err = "consensus requires equal-length reads (no indels)";
+			return false;
+		}
+		for (size_t i = 0; i < n; i++) {
+			uint32_t w = 1;
+			if (soft && rd->qual) w = (uint32_t)rd->qual[i] + 1u;
+			counts[i * 4 + (size_t)vivi_read_base(rd, i)] += w;
+		}
+	}
+	size_t bytes = (n + 3) / 4;
+	uint8_t *packed = vivi_zalloc(bytes ? bytes : 1, 1);
+	if (!packed) { vivi_dealloc(counts); *err = "out of memory"; return false; }
+	for (size_t i = 0; i < n; i++) {
+		size_t best = 0;
+		for (size_t d = 1; d < 4; d++)
+			if (counts[i * 4 + d] > counts[i * 4 + best]) best = d;
+		packed[i / 4] |= (uint8_t)(best << (2 * (3 - i % 4)));
+	}
+	out->strand.data = packed;
+	out->strand.len = bytes;
+	out->bases = n;
+	vivi_dealloc(counts);
+	return true;
+}
+
 bool vivi_consensus_read(vivi_read *out, const uint8_t *strand, size_t slen,
 	const vivi_consensus_opts *opts, const char **err)
 {

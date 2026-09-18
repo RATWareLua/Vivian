@@ -58,6 +58,25 @@ typedef struct {
 /* Frees out->strand and out->qual (NULL-safe) and zeroes the read. */
 void vivi_read_free(vivi_read *out);
 
+/* --- user-supplied calibration primitives ------------------------------ */
+/* Build a read from your own damaged strand (bytes are copied). `bases` is
+ * the exact base count (>= (slen*4)-3). Free it with vivi_read_free. */
+[[nodiscard]] bool vivi_read_from_bytes(vivi_read *out, const uint8_t *strand, size_t slen,
+	size_t bases, const char **err);
+/* Base digit (0..3) at index i; 0 when i >= bases or r is NULL. */
+uint8_t vivi_read_base(const vivi_read *r, size_t i);
+/* Allocate (if needed) and fill the read's quality array; false on OOM. */
+[[nodiscard]] bool vivi_read_alloc_quality(vivi_read *r, uint8_t fill, const char **err);
+/* Overwrite one quality entry; false when i >= bases. */
+[[nodiscard]] bool vivi_read_set_quality(vivi_read *r, size_t i, uint8_t qual);
+
+/* Majority-vote a set of caller-supplied reads. Dropped reads are skipped;
+ * every surviving read must report the same base count (no indels). With
+ * `soft != 0` each base vote is weighted by `quality + 1`, so a calibrated
+ * quality model lives entirely in the caller. The result has no quality. */
+[[nodiscard]] bool vivi_consensus_vote(vivi_read *out, const vivi_read *const *reads,
+	size_t count, int soft, const char **err);
+
 /* Coverage: read the same molecule `coverage` times and majority-vote
  * every base, the way a real pipeline sequences many copies of one oligo.
  * Substitution-only: with coverage > 1 every surviving read must keep the

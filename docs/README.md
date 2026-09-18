@@ -21,7 +21,7 @@ for every revision, VIV1 through VIV14NB4NSH33.
 ```bat
 cd framework\C
 build.bat lib        rem static library -> vivi.lib
-build.bat test       rem 8723-check suite
+build.bat test       rem 8740-check suite
 build.bat asan       rem the same suite under AddressSanitizer
 build.bat density    rem packing-density report
 build.bat xcheck     rem C<->Lua byte parity against framework/luau/xcheck.lua

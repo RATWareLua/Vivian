@@ -540,6 +540,15 @@ typedef struct {
 [[nodiscard]] bool vivi_channel_read_soft(vivi_read *out, const uint8_t *strand, size_t slen,
     const vivi_channel_opts *opts, const char **err);
 void vivi_read_free(vivi_read *out);
+
+/* user calibration primitives */
+[[nodiscard]] bool vivi_read_from_bytes(vivi_read *out, const uint8_t *strand, size_t slen,
+    size_t bases, const char **err);
+uint8_t vivi_read_base(const vivi_read *r, size_t i);
+[[nodiscard]] bool vivi_read_alloc_quality(vivi_read *r, uint8_t fill, const char **err);
+[[nodiscard]] bool vivi_read_set_quality(vivi_read *r, size_t i, uint8_t qual);
+[[nodiscard]] bool vivi_consensus_vote(vivi_read *out, const vivi_read *const *reads,
+    size_t count, int soft, const char **err);
 ```
 
 - `opts` may be `NULL` (identity channel); probabilities outside [0, 1] are
@@ -554,6 +563,12 @@ void vivi_read_free(vivi_read *out);
   any read with `vivi_read_free`.
 - `vivi_consensus_read` (see `vivi_consensus_opts`) majority-votes `coverage`
   reads; with `soft != 0` the vote is weighted by `qual + 1`.
+- `vivi_read_from_bytes` builds a read from your own damaged strand;
+  `vivi_read_base` reads a digit; `vivi_read_alloc_quality` /
+  `vivi_read_set_quality` attach a calibrated per-base quality;
+  `vivi_consensus_vote` majority-votes reads you supply (weighted by
+  `qual + 1` when `soft != 0`). Rates and quality are the caller's, so all
+  calibration lives in your code.
 
 See [research.md](research.md) for the `vivi_sim` experiment tool, the CSV
 schema and measured success curves.

@@ -58,6 +58,31 @@ vivi_channel_read(&rd, strand, slen, &ch, &err);
 - The research layer uses SplitMix64 (`vivi_prng`); the format-level
   xorshift32 (`vivi_rng`) stays frozen for Lua byte parity.
 
+### Calibrating it yourself
+
+The rates and the quality model are *your* parameters, not the core's. The
+built-in `VIVI_QUAL_HI/LO` split is only a convenience default. To use a
+calibrated model entirely in your own code:
+
+```c
+vivi_read r;
+vivi_read_from_bytes(&r, your_strand, slen, bases, &err);   /* your damage */
+vivi_read_alloc_quality(&r, 0, &err);
+for (size_t i = 0; i < r.bases; i++)
+    vivi_read_set_quality(&r, i, your_q(vivi_read_base(&r, i), i));
+const vivi_read *reads[K] = { &r, ... };
+vivi_consensus_vote(&out, reads, K, /*soft=*/1, &err);      /* weighted vote */
+vivi_read_free(&r);
+```
+
+- `vivi_read_base` reads a base digit; `vivi_read_set_quality` overwrites a
+  quality; `vivi_consensus_vote` does the weighted (or hard) majority over
+  reads you supply, so a Phred-calibrated table lives entirely with you.
+- Or skip the channel entirely: generate damaged strands with any model and
+  install them with `organism_replace_strand`, then use `organism_read`.
+- The primitives are C-side; the Lua reference returns quality through its
+  read table and can vote in Lua.
+
 ## Inner code (`vivi/rs.h`)
 
 The 32-bit gene tag turns any corruption into a whole-gene erasure. The
@@ -70,12 +95,16 @@ the CLI); the parity count is self-describing, so a deserialized organism
 infers it from the genes and `mutate`/`cross` preserve it. Dense mode
 only, and `gene_raw + inner_m <= 255`.
 
-A base substitution only sometimes maps to one bad byte: measured over
-20 000 single-base corruption trials on a 64-byte payload, 25% made the
-DNA decoder fail outright, 55% produced exactly one byte error, 2% two,
-and the rest desynchronized the constraint coder into many. RS repairs
-the single- and double-byte cases (the dominant ones) but cannot undo a
-desync, so the inner code is a partial, honest win.
+A base substitution only sometimes maps to one bad byte. Measured over
+20 000 single-base corruption trials on a 64-byte payload: at `h = 3`, 25%
+made the DNA decoder fail and 18% desynchronized the constraint coder into
+many byte errors, leaving barely half the substitutions repairable; at
+`h >= 6` the desync share collapses to ~0.1% and ~93% of substitutions
+become exactly one byte error, which the RS decoder repairs. Inner genes
+are therefore encoded with `h >= 6` (the clamp is inside
+`genome_gene_encode_inner`, ignored by the auto-detecting decoder), which
+is what makes the measured table above roughly 2-4x better than the
+un-clamped code.
 
 ## Consensus (coverage)
 
@@ -282,13 +311,18 @@ where the "coverage distribution" gap in the assumptions bites.
 
 | mode | parameters | inner 0 | inner 16 |
 |---|---|---|---|
-| whole | 256 B, gene_raw 64, p_sub 0.001 | 0.689 | **0.903** |
-| library | 1 KiB, n=16, gene_raw 64, p_sub 0.001 | 0.006 | **0.066** |
-| access | 1 KiB, gene_raw 64, p_sub 0.001, p_access 0.05 | 0.668 | **0.801** |
+| whole | 256 B, gene_raw 64, p_sub 0.001 | 0.689 | **0.956** |
+| library | 1 KiB, n=16, gene_raw 64, p_sub 0.001 | 0.006 | **0.267** |
+| access | 1 KiB, gene_raw 64, p_sub 0.001, p_access 0.05 | 0.668 | **0.861** |
 
-The inner code trades capacity (shorter genes) for per-molecule repair, so
-it lifts whole and access strongly but library only modestly: with 16 genes
-all needing to survive, the unavoidable ~25% decode-desync share dominates.
+The inner code trades capacity (shorter genes) for per-molecule repair and
+now lifts every mode. The earlier version only reached 0.903/0.066/0.801
+because a low homopolymer limit (`h = 3`) made the constraint decoder
+**desynchronize** on a single base error: measured over 20 000 single-base
+corruptions of a 64-byte payload, `h = 3` left 42% of them unrecoverable
+(25% decode failure + 18% many-byte desync), while `h >= 6` drops that to
+~7% (essentially all one-byte errors, which the RS decoder fixes). Inner
+genes therefore encode with `h >= 6` regardless of the chromosome option.
 It composes with parity and coverage.
 
 ## Benchmark (`tools/vivi_bench`)
@@ -420,10 +454,15 @@ through a Banshee container.
 13. **Soft-decision** — done (`vivi_channel_read_soft`, `--soft`; quality-
     weighted consensus).
 14. **Correlated indels** — done (`p_burst_del`: deletions inside a burst).
+15. **User calibration primitives** — done (`vivi_read_from_bytes`,
+    `vivi_read_base`, `vivi_read_alloc_quality`, `vivi_read_set_quality`,
+    `vivi_consensus_vote`); rates and quality stay caller-owned.
+16. **Inner-code desync** — done: inner genes encode with `h >= 6`, which
+    removes the constraint-decoder desync (42% -> ~0.1% of substitutions)
+    and roughly doubles the inner code's measured lift.
 
-Still open (honest limits, not missing code): a basecaller-calibrated quality
-model, PCR amplification bias, per-oligo synthesis dropout, adapter
-contamination, and the inner-code desync (~25% of single substitutions make
-`dna_decode` fail before the RS decoder can help).
+Still open (honest limits, not missing code): a quality model calibrated to
+a specific basecaller's reliability curve, PCR amplification bias, per-oligo
+synthesis dropout, and adapter contamination.
 
 All results are simulation only; no wet-lab claims are made.
